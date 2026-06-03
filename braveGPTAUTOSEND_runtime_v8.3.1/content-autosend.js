@@ -5,8 +5,8 @@
  * AUTHOR       : Bruno DELNOZ
  * EMAIL        : bruno.delnoz@protonmail.com
  * TARGET USAGE : ChatGPT Web Voice-to-text / Text-to-voice flow helper
- * VERSION      : v8.4.0
- * DATE         : 2026-06-03 22:35
+ * VERSION      : v8.3.1
+ * DATE         : 2026-06-03 21:55
  * ============================================================================
  * CHANGELOG:
  *   v1.0.0 – 2026-06-03 07:05 – Bruno DELNOZ
@@ -112,13 +112,6 @@
  *       - Read aloud now becomes the active step immediately after transcript send and while ChatGPT is thinking.
  *       - Send transcription is now only a short transition step instead of a stale long-running indicator.
 
-
- *   v8.4.0 – 2026-06-03 22:35 – Bruno DELNOZ
- *       Fixed:
- *       - Added hard response-cycle lock: after transcript send, no automatic Start transcription is allowed until the current assistant response has been clicked for Read aloud and the read cycle is completed.
- *       - Added assistant-after-user verification before Auto Read can target a message.
- *       - Reordered all choice controls to No / Yes, left to right.
- *       - Kept all v8 features while shrinking Mini mode layout and Next button footprint.
  *   v8.3.1 – 2026-06-03 22:05 – Bruno DELNOZ
  *       Fixed:
  *       - Fixed package metadata mismatch: manifest/background/style now expose v8.3.1.
@@ -140,7 +133,7 @@
 
     window.__CGAS_AUTOSEND_LOADED__ = true;
 
-    const VERSION = '8.4.0';
+    const VERSION = '8.3.1';
     const SUPPORTED_ORIGIN_RE = /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//;
 
     const STORAGE_KEYS = Object.freeze({
@@ -231,9 +224,6 @@
     let automationEpoch = 0;
     let assistantHashAtLastSend = '';
     let lastReadStartedHash = '';
-    let responseCycleOpen = false;
-    let responseCycleHash = '';
-    let lastReadCompletedHash = '';
 
     let audioStream = null;
     let audioContext = null;
@@ -305,9 +295,6 @@
         const latest = getLatestAssistantMessage();
         assistantHashAtLastSend = latest && latest.text ? hashText(latest.text) : '';
         lastReadStartedHash = '';
-        responseCycleOpen = true;
-        responseCycleHash = '';
-        lastReadCompletedHash = '';
         bumpAutomationEpoch('send-cycle-start');
     }
 
@@ -348,14 +335,6 @@
         }
         if (typeof expectedEpoch === 'number' && expectedEpoch !== automationEpoch) {
             setStatus('Start locked: stale job');
-            return false;
-        }
-        if (responseCycleOpen && (!expectedHash || lastReadCompletedHash !== expectedHash)) {
-            setStatus('Start locked: waiting read');
-            return false;
-        }
-        if (expectedHash && lastReadCompletedHash !== expectedHash) {
-            setStatus('Start locked: read not completed');
             return false;
         }
         if (answerStillPendingAfterSend()) {
@@ -676,13 +655,13 @@
 
         row.appendChild(createLabel(labelId, shortText, longText, titleText));
 
-        const no = createButton('No', 'cgas-choice', noHandler);
-        no.id = noId;
-        row.appendChild(no);
-
         const yes = createButton('Yes', 'cgas-choice', yesHandler);
         yes.id = yesId;
         row.appendChild(yes);
+
+        const no = createButton('No', 'cgas-choice', noHandler);
+        no.id = noId;
+        row.appendChild(no);
 
         return row;
     }
@@ -817,13 +796,13 @@
         );
         row.appendChild(label);
 
-        const off = createButton('No', 'cgas-choice cgas-flow-choice', () => setFlowEnabled(false));
-        off.id = 'cgas-flow-off';
-        row.appendChild(off);
-
-        const on = createButton('Yes', 'cgas-choice cgas-flow-choice', () => setFlowEnabled(true));
+        const on = createButton('On', 'cgas-choice cgas-flow-choice', () => setFlowEnabled(true));
         on.id = 'cgas-flow-on';
         row.appendChild(on);
+
+        const off = createButton('Off', 'cgas-choice cgas-flow-choice', () => setFlowEnabled(false));
+        off.id = 'cgas-flow-off';
+        row.appendChild(off);
 
         return row;
     }
@@ -1032,11 +1011,6 @@
                 : 'Switch to full explanatory labels.';
         }
 
-        const next = document.getElementById('cgas-next-step');
-        if (next) {
-            next.textContent = state.labelsExpanded ? 'Next step' : 'Next';
-        }
-
         for (const label of Array.from(widget.querySelectorAll('.cgas-dynamic-label'))) {
             label.textContent = state.labelsExpanded
                 ? (label.dataset.longText || label.dataset.shortText || label.textContent)
@@ -1122,9 +1096,6 @@
 
         if (!state.flowEnabled) {
             bumpAutomationEpoch('flow-off');
-            responseCycleOpen = false;
-            responseCycleHash = '';
-            lastReadCompletedHash = '';
             resetTosState();
             stopAudioMonitor();
             setCurrentStep('idle');
@@ -1535,19 +1506,6 @@
         return Boolean(latestAssistant.node.compareDocumentPosition(latestUser.node) & Node.DOCUMENT_POSITION_FOLLOWING);
     }
 
-    function assistantIsAfterLatestUser(latestAssistant) {
-        if (!latestAssistant || !latestAssistant.node) {
-            return false;
-        }
-
-        const latestUser = getLatestUserMessage();
-        if (!latestUser || !latestUser.node) {
-            return true;
-        }
-
-        return Boolean(latestUser.node.compareDocumentPosition(latestAssistant.node) & Node.DOCUMENT_POSITION_FOLLOWING);
-    }
-
     function latestAssistantHashMatches(expectedHash) {
         if (!expectedHash) {
             return true;
@@ -1679,7 +1637,7 @@
             return;
         }
 
-        if (latestUserIsAfterAssistant(latest) || (lastSendAt && !assistantIsAfterLatestUser(latest) && now() - lastSendAt < CONFIG.pendingAnswerGuardMs)) {
+        if (latestUserIsAfterAssistant(latest)) {
             setCurrentStep('read');
             setStatus('Waiting assistant answer');
             return;
@@ -1723,8 +1681,6 @@
                 setCurrentStep('read');
                 lastReadHash = currentHash;
                 lastReadStartedHash = currentHash;
-                responseCycleHash = currentHash;
-                lastReadCompletedHash = '';
                 lastReadAt = now();
                 setStatus('Read aloud clicked');
                 if (state.autoLoop) {
@@ -1965,13 +1921,6 @@
         try {
             setStatus('Waiting read end…');
             await waitForReadAloudCompletion(latest && latest.text ? latest.text : '');
-            lastReadCompletedHash = currentHash || '';
-            responseCycleOpen = false;
-
-            if (latest && !assistantIsAfterLatestUser(latest)) {
-                setStatus('Start locked: not latest answer');
-                return;
-            }
 
             if (!autoStartTranscriptionAllowed(currentHash, jobEpoch)) {
                 return;
@@ -2420,10 +2369,6 @@
             setStatus('Flow OFF');
             return false;
         }
-        if (answerStillPendingAfterSend() || (responseCycleOpen && !lastReadCompletedHash)) {
-            setStatus('Next blocked: waiting response/read');
-            return false;
-        }
         if (pageLooksGenerating()) {
             setStatus('Next blocked: thinking');
             return false;
@@ -2457,8 +2402,6 @@
                 setStatus('Read aloud skipped');
                 await sleep(CONFIG.manualNextDelayMs);
                 await waitUntilReadingLooksStopped(5000);
-                lastReadCompletedHash = lastReadStartedHash || lastReadHash || '';
-                responseCycleOpen = false;
                 if (state.autoLoop) {
                     await clickVoiceInputNow('Next: transcription');
                 }
@@ -2507,8 +2450,6 @@
                     setCurrentStep('read');
                     lastReadHash = hashText(latest.text);
                     lastReadStartedHash = lastReadHash;
-                    responseCycleHash = lastReadHash;
-                    lastReadCompletedHash = '';
                     lastReadAt = now();
                     setStatus('Next: Read aloud');
                     if (state.autoLoop) {

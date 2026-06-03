@@ -5,8 +5,8 @@
  * AUTHOR       : Bruno DELNOZ
  * EMAIL        : bruno.delnoz@protonmail.com
  * TARGET USAGE : Draggable ChatGPT VTT-TTV Flow widget style
- * VERSION      : v8.4.0
- * DATE         : 2026-06-03 22:35
+ * VERSION      : v8.3.1
+ * DATE         : 2026-06-03 21:20
  * ============================================================================
  */
 
@@ -357,98 +357,4 @@
     padding: 0 7px;
     line-height: 20px;
     font-size: 10px;
-}
-
-
-/* ==========================================================================
- * v8.4.0 compact Mini layout overrides
- * ========================================================================== */
-#cgas-widget:not(.cgas-labels-expanded) {
-    width: 204px;
-    padding: 6px;
-    font-size: 10px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) #cgas-dragbar {
-    gap: 5px;
-    margin-bottom: 4px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) #cgas-title {
-    font-size: 11px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) .cgas-header-button,
-#cgas-widget:not(.cgas-labels-expanded) #cgas-close {
-    width: 18px;
-    min-width: 18px;
-    height: 18px;
-    line-height: 18px;
-    font-size: 9px;
-    padding: 0;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) #cgas-flow-master-row,
-#cgas-widget:not(.cgas-labels-expanded) .cgas-row,
-#cgas-widget:not(.cgas-labels-expanded) .cgas-step-row,
-#cgas-widget:not(.cgas-labels-expanded) .cgas-meter-row,
-#cgas-widget:not(.cgas-labels-expanded) #cgas-step-indicators,
-#cgas-widget:not(.cgas-labels-expanded) #cgas-next-row {
-    gap: 3px;
-    margin-top: 3px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) .cgas-choice,
-#cgas-widget:not(.cgas-labels-expanded) .cgas-flow-choice {
-    min-width: 27px;
-    padding: 3px 4px;
-    border-radius: 7px;
-    font-size: 9.5px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) .cgas-next-button {
-    padding: 3px 5px;
-    border-radius: 7px;
-    font-size: 9.5px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) .cgas-step-indicator-item {
-    gap: 2px;
-    padding: 2px 3px;
-    font-size: 8.5px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) .cgas-step-dot {
-    width: 5px;
-    height: 5px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) .cgas-step {
-    min-width: 22px;
-    padding: 3px 4px;
-    border-radius: 7px;
-    font-size: 9.5px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) .cgas-step-value {
-    min-width: 28px;
-    padding: 3px 4px;
-    border-radius: 7px;
-    font-size: 9.5px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) .cgas-meter-row {
-    grid-template-columns: 34px 64px 22px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) #cgas-vol-value {
-    min-width: 22px;
-    font-size: 9.5px;
-}
-
-#cgas-widget:not(.cgas-labels-expanded) #cgas-status {
-    margin-top: 4px;
-    padding-top: 4px;
-    font-size: 9.5px;
-    min-height: 12px;
 }
