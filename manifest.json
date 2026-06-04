@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Voice Flow",
-  "version": "8.4.0",
-  "description": "Local ChatGPT Web helper for voice-to-text and text-to-voice flow with Flow On/Off, Next step, step indicators, T.O.S., threshold and volume meter. v8.4.0 adds hard post-send response-cycle lock, No/Yes ordering, and compact Mini UI refinements.",
+  "version": "8.8.0",
+  "description": "Local ChatGPT Web helper for voice-to-text and text-to-voice flow with Flow On/Off, Next Step, step indicators, T.O.S., threshold and volume meter. v8.8.0 hardens Next Step during Think/Read, blocks self-transcription while ChatGPT is reading or thinking, and keeps Start Transcription OFF as a hard blocker for automatic VTT restart.",
   "action": {
     "default_title": "ChatGPT Voice Flow",
     "default_icon": {

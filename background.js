@@ -5,8 +5,8 @@
  * AUTHOR       : Bruno DELNOZ
  * EMAIL        : bruno.delnoz@protonmail.com
  * TARGET USAGE : Manifest V3 action toggler for ChatGPT VTT-TTV Flow extension
- * VERSION      : v8.4.0
- * DATE         : 2026-06-03 22:35
+ * VERSION      : v8.8.0
+ * DATE         : 2026-06-04 00:35
  * ============================================================================
  * CHANGELOG:
  *   v1.0.0 – 2026-06-03 07:05 – Bruno DELNOZ
@@ -65,6 +65,17 @@
  *       - Kept the same feature set while forcing safe OFF defaults on upgrade.
 
 
+
+ *   v8.8.0 – 2026-06-04 00:35 – Bruno DELNOZ
+ *       Fixed:
+ *       - Bumped runtime for hardened Think/Read/Next handling.
+ *   v8.7.0 – 2026-06-03 23:20 – Bruno DELNOZ
+ *       Fixed:
+ *       - Bumped runtime for Think/Read/Next step guard corrections and grouped step pills.
+ *   v8.5.0 – 2026-06-03 22:55 – Bruno DELNOZ
+ *       Changed:
+ *       - Bumped runtime for compact widget layout, shorter title, Mini/Maxi wording and visible version badge.
+ *       - Kept v8.4 hard post-send Start transcription lock unchanged.
  *   v8.4.0 – 2026-06-03 22:35 – Bruno DELNOZ
  *       Fixed:
  *       - Bumped runtime for hard post-send Start transcription lock.
@@ -81,7 +92,7 @@
 
 'use strict';
 
-const CGAS_BACKGROUND_VERSION = '8.4.0';
+const CGAS_BACKGROUND_VERSION = '8.8.0';
 const SUPPORTED_ORIGIN_RE = /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//;
 
 function isSupportedUrl(url) {

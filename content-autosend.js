@@ -5,8 +5,8 @@
  * AUTHOR       : Bruno DELNOZ
  * EMAIL        : bruno.delnoz@protonmail.com
  * TARGET USAGE : ChatGPT Web Voice-to-text / Text-to-voice flow helper
- * VERSION      : v8.4.0
- * DATE         : 2026-06-03 22:35
+ * VERSION      : v8.8.0
+ * DATE         : 2026-06-04 00:35
  * ============================================================================
  * CHANGELOG:
  *   v1.0.0 – 2026-06-03 07:05 – Bruno DELNOZ
@@ -113,6 +113,30 @@
  *       - Send transcription is now only a short transition step instead of a stale long-running indicator.
 
 
+
+ *   v8.8.0 – 2026-06-04 00:35 – Bruno DELNOZ
+ *       Fixed:
+ *       - Hardened Next Step during Read aloud: click the real Stop reading control first and never restart VTT until stop is confirmed.
+ *       - Hardened Next Step during Think: click ChatGPT's Stop generating control before any VTT restart.
+ *       - Blocked T.O.S. while ChatGPT is thinking or reading to avoid self-transcribing ChatGPT's own voice.
+ *       - Added epoch checks inside read-wait jobs so stale loop jobs cannot restart transcription after toggles or Flow changed.
+ *       - Kept Start Transcription OFF as a hard stop for automatic VTT restart.
+ *       - Improved step-state priority so post-send cycles stay in Think/Read instead of falling back to VTT too early.
+ *   v8.7.0 – 2026-06-03 23:20 – Bruno DELNOZ
+ *       Fixed:
+ *       - Split the post-send state into real Think and real Read phases.
+ *       - Fixed Next step so Think skips do not try to stop Read aloud.
+ *       - Fixed Next step so Read aloud must be confirmed stopped before VTT starts.
+ *       - Added a stricter manual/automatic guard against ghost Start transcription during Think or Read.
+ *       Changed:
+ *       - Reworked step pills to Send, grouped Think/Read, and VTT with red dots after labels.
+ *       - Updated widget labels to Title Case, Full Flow Activation / Full Flow Act., and tighter Mini/Maxi layout.
+ *   v8.5.0 – 2026-06-03 22:55 – Bruno DELNOZ
+ *       Changed:
+ *       - Shortened the expanded widget title to ChatGPT Voice Flow.
+ *       - Changed the label-mode control wording from Full to Maxi.
+ *       - Added a visible v8.5 badge in the widget header.
+ *       - Reduced Mini and Full widget width, spacing and step-indicator footprint without changing runtime logic.
  *   v8.4.0 – 2026-06-03 22:35 – Bruno DELNOZ
  *       Fixed:
  *       - Added hard response-cycle lock: after transcript send, no automatic Start transcription is allowed until the current assistant response has been clicked for Read aloud and the read cycle is completed.
@@ -140,7 +164,7 @@
 
     window.__CGAS_AUTOSEND_LOADED__ = true;
 
-    const VERSION = '8.4.0';
+    const VERSION = '8.8.0';
     const SUPPORTED_ORIGIN_RE = /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//;
 
     const STORAGE_KEYS = Object.freeze({
@@ -192,6 +216,10 @@
 
     const READ_LABEL_RE = /\bread aloud\b|\bread response\b|\blisten\b|lire\s+(à|a)\s+voix\s+haute|lire\s+la\s+r[eé]ponse|lecture\s+audio|écouter|ecouter/i;
     const READ_ACTIVE_LABEL_RE = /stop\s+reading|pause\s+reading|stop\s+audio|pause\s+audio|arr[eê]ter\s+(la\s+)?lecture|mettre.*pause|pause|reprendre\s+la\s+lecture/i;
+    const READ_STOP_LABEL_RE = /stop\s+reading|stop\s+audio|stop\s+read|arr[eê]ter\s+(la\s+)?lecture|arr[eê]ter\s+(l['’])?audio|\bstop\b/i;
+    const READ_STOP_BAD_LABEL_RE = /stop\s+generating|stop\s+streaming|dictation|recording|transcription|micro|mic|close|dismiss|fermer|menu|more|plus|envoyer|send/i;
+    const GENERATING_STOP_LABEL_RE = /stop\s+generating|stop\s+streaming|arr[eê]ter\s+(la\s+)?g[eé]n[eé]ration|interrompre|\bstop\b/i;
+    const GENERATING_STOP_BAD_LABEL_RE = /dictation|recording|transcription|micro|mic|read\s+aloud|lecture|audio|close|dismiss|fermer|menu|more|plus|envoyer|send/i;
     const MIC_LABEL_RE = /dictate|dictation|start\s+dictation|microphone|\bmic\b|dicter|dictée|dictee|micro|saisie\s+vocale|entrée\s+vocale|transcription\s+vocale/i;
     const BAD_MIC_LABEL_RE = /send|envoyer|submit|attach|upload|file|image|search|tool|reason|model|read\s+aloud|lire|stop\s+generating|stop\s+reading|pause|resume|cancel|annuler|voice\s*mode|conversation|conversationnel|advanced\s+voice|live\s+voice|start\s+voice|open\s+voice|audio\s+mode|call|appel/i;
     const MORE_LABEL_RE = /\bmore\b|more actions|options|menu|actions|ouvrir.*menu|plus|autres|\.\.\.|…/i;
@@ -234,6 +262,8 @@
     let responseCycleOpen = false;
     let responseCycleHash = '';
     let lastReadCompletedHash = '';
+    let readGuardUntil = 0;
+    let manualNextInProgress = false;
 
     let audioStream = null;
     let audioContext = null;
@@ -296,6 +326,7 @@
         automationEpoch += 1;
         loopRunning = false;
         readRunning = false;
+        readGuardUntil = 0;
         if (reason) {
             console.log('[CGAS] automation epoch bumped:', automationEpoch, reason);
         }
@@ -309,6 +340,7 @@
         responseCycleHash = '';
         lastReadCompletedHash = '';
         bumpAutomationEpoch('send-cycle-start');
+        setCurrentStep('think');
     }
 
     function answerStillPendingAfterSend() {
@@ -366,7 +398,7 @@
             setStatus('Start locked: thinking');
             return false;
         }
-        if (pageLooksReadingAloud()) {
+        if (pageLooksReadingAloud() || readGuardActive()) {
             setStatus('Start locked: still reading');
             return false;
         }
@@ -385,22 +417,45 @@
         return true;
     }
 
+
+    function readGuardActive() {
+        return Boolean(readGuardUntil && now() < readGuardUntil);
+    }
+
+    function markReadStarted(hashValue, textValue) {
+        const safeHash = hashValue || '';
+        lastReadHash = safeHash;
+        lastReadStartedHash = safeHash;
+        responseCycleHash = safeHash;
+        lastReadCompletedHash = '';
+        lastReadAt = now();
+        readGuardUntil = Math.max(readGuardUntil, now() + estimateReadMs(textValue || ''));
+        setCurrentStep('read');
+    }
+
+    function markReadCompleted(hashValue) {
+        lastReadCompletedHash = hashValue || lastReadStartedHash || lastReadHash || '';
+        responseCycleOpen = false;
+        readGuardUntil = 0;
+    }
+
     function setCurrentStep(step) {
         currentStep = step || 'idle';
         updateStepIndicator();
     }
 
     function updateStepIndicator() {
-        const map = {
-            send: 'cgas-step-send',
-            read: 'cgas-step-read',
-            transcript: 'cgas-step-transcript'
+        const activeMap = {
+            'cgas-step-send': currentStep === 'send',
+            'cgas-step-think': currentStep === 'think',
+            'cgas-step-read': currentStep === 'read',
+            'cgas-step-transcript': currentStep === 'transcript'
         };
 
-        for (const [step, id] of Object.entries(map)) {
+        for (const [id, active] of Object.entries(activeMap)) {
             const dot = document.getElementById(id);
             if (dot) {
-                dot.classList.toggle('cgas-step-active', currentStep === step);
+                dot.classList.toggle('cgas-step-active', Boolean(active));
             }
         }
     }
@@ -411,25 +466,35 @@
         }
 
         /*
-         * v8.2: the displayed step must reflect the real UI state, not the
-         * option that was last toggled. This is deliberately ordered from the
-         * most concrete visible state to the softer pending states.
+         * v8.7: real phases are now separated:
+         *   Send  = transcript validation/send transition
+         *   Think = ChatGPT is generating or the new answer is not ready/read yet
+         *   Read  = Read aloud is actually active or locked by its conservative guard
+         *   VTT   = ChatGPT voice-to-text is open
          */
-        if (findTranscriptionFinishButton()) {
-            return 'transcript';
-        }
-
-        if (pageLooksReadingAloud()) {
+        if (pageLooksReadingAloud() || (readGuardActive() && (currentStep === 'read' || lastReadStartedHash))) {
             return 'read';
         }
 
         if (pageLooksGenerating()) {
-            return 'read';
+            return 'think';
+        }
+
+        if (responseCycleOpen && lastSendAt && !lastReadCompletedHash && !lastReadStartedHash) {
+            return 'think';
+        }
+
+        if (findTranscriptionFinishButton()) {
+            return 'transcript';
         }
 
         const latestAssistant = getLatestAssistantMessage();
         if (latestAssistant && latestUserIsAfterAssistant(latestAssistant)) {
-            return 'read';
+            return 'think';
+        }
+
+        if (responseCycleOpen && !lastReadStartedHash && lastSendAt && answerStillPendingAfterSend()) {
+            return 'think';
         }
 
         const composerText = getComposerText();
@@ -441,7 +506,11 @@
             return 'send';
         }
 
-        if (currentStep === 'read' && now() - lastReadAt < CONFIG.readCooldownMs) {
+        if (currentStep === 'think' && responseCycleOpen && !lastReadStartedHash) {
+            return 'think';
+        }
+
+        if (currentStep === 'read' && (readGuardActive() || now() - lastReadAt < CONFIG.readCooldownMs)) {
             return 'read';
         }
 
@@ -712,8 +781,8 @@
     function createTosSecondsRow() {
         return createStepRow(
             'cgas-label-sec',
-            'sec',
-            'silence seconds',
+            'Sec',
+            'Silence Seconds',
             'cgas-tos-value',
             'cgas-tos-minus',
             'cgas-tos-plus',
@@ -726,8 +795,8 @@
     function createThresholdRow() {
         return createStepRow(
             'cgas-label-thr',
-            'thr',
-            'volume threshold',
+            'Thr',
+            'Volume Threshold',
             'cgas-thr-value',
             'cgas-thr-minus',
             'cgas-thr-plus',
@@ -811,8 +880,8 @@
 
         const label = createLabel(
             'cgas-label-flow',
-            'Flow',
-            'Flow enabled',
+            'Full Flow Act.',
+            'Full Flow Activation',
             'Global kill switch. When OFF, no automatic action runs even if rows below stay configured.'
         );
         row.appendChild(label);
@@ -832,7 +901,7 @@
         const row = document.createElement('div');
         row.id = 'cgas-next-row';
 
-        const button = createButton('Next step', 'cgas-next-button', () => {
+        const button = createButton('Next Step', 'cgas-next-button', () => {
             goToNextStep();
         });
         button.id = 'cgas-next-step';
@@ -842,32 +911,47 @@
         return row;
     }
 
-    function createStepIndicatorRow() {
-        const row = document.createElement('div');
-        row.id = 'cgas-step-indicators';
+    function createStepIndicatorItem(parts, titleText, extraClassName) {
+        const item = document.createElement('div');
+        item.className = 'cgas-step-indicator-item' + (extraClassName ? ' ' + extraClassName : '');
+        item.title = titleText;
 
-        const steps = [
-            ['cgas-step-send', 'Send', 'Send transcription step'],
-            ['cgas-step-read', 'Read', 'Read aloud step'],
-            ['cgas-step-transcript', 'VTT', 'Start transcription step']
-        ];
+        for (const [label, id] of parts) {
+            const group = document.createElement('span');
+            group.className = 'cgas-step-part';
 
-        for (const [id, label, title] of steps) {
-            const item = document.createElement('div');
-            item.className = 'cgas-step-indicator-item';
-            item.title = title;
+            const textNode = document.createElement('span');
+            textNode.className = 'cgas-step-text';
+            textNode.textContent = label;
+            group.appendChild(textNode);
 
             const dot = document.createElement('span');
             dot.id = id;
             dot.className = 'cgas-step-dot';
-            item.appendChild(dot);
+            group.appendChild(dot);
 
-            const text = document.createElement('span');
-            text.textContent = label;
-            item.appendChild(text);
-
-            row.appendChild(item);
+            item.appendChild(group);
         }
+
+        return item;
+    }
+
+    function createStepIndicatorRow() {
+        const row = document.createElement('div');
+        row.id = 'cgas-step-indicators';
+
+        row.appendChild(createStepIndicatorItem([
+            ['Send', 'cgas-step-send']
+        ], 'Send transcription step', 'cgas-step-send-pill'));
+
+        row.appendChild(createStepIndicatorItem([
+            ['Think', 'cgas-step-think'],
+            ['Read', 'cgas-step-read']
+        ], 'Think / Read aloud phase', 'cgas-step-think-read-pill'));
+
+        row.appendChild(createStepIndicatorItem([
+            ['VTT', 'cgas-step-transcript']
+        ], 'Start transcription step', 'cgas-step-vtt-pill'));
 
         return row;
     }
@@ -898,7 +982,13 @@
         title.textContent = 'Voice Flow';
         dragbar.appendChild(title);
 
-        const modeToggle = createButton('Full', 'cgas-header-button', () => {
+        const versionBadge = document.createElement('span');
+        versionBadge.id = 'cgas-version-badge';
+        versionBadge.textContent = `v${VERSION}`;
+        versionBadge.title = `Runtime version ${VERSION}`;
+        dragbar.appendChild(versionBadge);
+
+        const modeToggle = createButton('Maxi', 'cgas-header-button', () => {
             state.labelsExpanded = !state.labelsExpanded;
             saveStatePatch({ labelsExpanded: state.labelsExpanded });
             updateWidget();
@@ -927,8 +1017,8 @@
 
         widget.appendChild(createRow(
             'cgas-label-send',
-            'Send tr.',
-            'Send transcription',
+            'Send Tr.',
+            'Send Transcription',
             'cgas-send-yes',
             'cgas-send-no',
             () => setAutoSend(true),
@@ -939,7 +1029,7 @@
         widget.appendChild(createRow(
             'cgas-label-read',
             'Read',
-            'Read aloud from ChatGPT',
+            'Read Aloud From ChatGPT',
             'cgas-read-yes',
             'cgas-read-no',
             () => setAutoRead(true),
@@ -949,8 +1039,8 @@
 
         widget.appendChild(createRow(
             'cgas-label-loop',
-            'Start tr.',
-            'Start transcription',
+            'Start Tr.',
+            'Start Transcription',
             'cgas-loop-yes',
             'cgas-loop-no',
             () => setAutoLoop(true),
@@ -961,7 +1051,7 @@
         widget.appendChild(createRow(
             'cgas-label-tos',
             'T.O.S.',
-            'Time of silence',
+            'Time Of Silence',
             'cgas-tos-yes',
             'cgas-tos-no',
             () => setTosEnabled(true),
@@ -980,9 +1070,9 @@
         volumeLabel.className = 'cgas-label';
         volumeLabel.id = 'cgas-label-vol';
         volumeLabel.classList.add('cgas-dynamic-label');
-        volumeLabel.dataset.shortText = 'vol';
-        volumeLabel.dataset.longText = 'microphone volume';
-        volumeLabel.textContent = 'vol';
+        volumeLabel.dataset.shortText = 'Vol';
+        volumeLabel.dataset.longText = 'Microphone Volume';
+        volumeLabel.textContent = 'Vol';
         volumeLabel.title = 'Current microphone level on the same 0–100 scale as THR.';
         volumeRow.appendChild(volumeLabel);
 
@@ -1020,13 +1110,13 @@
         const title = document.getElementById('cgas-title');
         if (title) {
             title.textContent = state.labelsExpanded
-                ? 'Voice to text / text to voice ChatGPT flow'
+                ? 'ChatGPT Voice Flow'
                 : 'Voice Flow';
         }
 
         const toggle = document.getElementById('cgas-label-mode-toggle');
         if (toggle) {
-            toggle.textContent = state.labelsExpanded ? 'Mini' : 'Full';
+            toggle.textContent = state.labelsExpanded ? 'Mini' : 'Maxi';
             toggle.title = state.labelsExpanded
                 ? 'Switch to compact labels.'
                 : 'Switch to full explanatory labels.';
@@ -1034,7 +1124,7 @@
 
         const next = document.getElementById('cgas-next-step');
         if (next) {
-            next.textContent = state.labelsExpanded ? 'Next step' : 'Next';
+            next.textContent = state.labelsExpanded ? 'Next Step' : 'Next';
         }
 
         for (const label of Array.from(widget.querySelectorAll('.cgas-dynamic-label'))) {
@@ -1396,8 +1486,8 @@
             sendButton.click();
             lastSentHash = textHash;
             lastSendAt = now();
-            setCurrentStep('read');
-            setStatus('Transcript sent, waiting response');
+            setCurrentStep('think');
+            setStatus('Transcript sent, thinking');
         } catch (error) {
             setStatus('Send failed: ' + error.message);
         }
@@ -1575,6 +1665,71 @@
         return false;
     }
 
+    function scoreGeneratingStopButton(control) {
+        if (!control || !isElementVisible(control) || control.closest('#cgas-widget')) {
+            return -1;
+        }
+
+        const label = textOf(control);
+        if (!label || !GENERATING_STOP_LABEL_RE.test(label) || GENERATING_STOP_BAD_LABEL_RE.test(label)) {
+            return -1;
+        }
+
+        let score = 0;
+        const dataTestId = String(control.getAttribute('data-testid') || '');
+        const ariaLabel = String(control.getAttribute('aria-label') || '');
+        const combined = normalizeSpace([label, dataTestId, ariaLabel].join(' '));
+        const composerRoot = findComposerRoot();
+        const rect = control.getBoundingClientRect();
+
+        if (/stop\s+generating|stop\s+streaming|arr[eê]ter.*g[eé]n[eé]ration/i.test(combined)) {
+            score += 220;
+        }
+        if (/\bstop\b/i.test(combined)) {
+            score += 80;
+        }
+        if (/stop/i.test(dataTestId)) {
+            score += 90;
+        }
+        if (composerRoot && composerRoot.contains(control)) {
+            score += 90;
+        }
+        if (rect.top > window.innerHeight * 0.55) {
+            score += 45;
+        }
+        if (rect.width >= 18 && rect.width <= 84 && rect.height >= 18 && rect.height <= 84) {
+            score += 20;
+        }
+
+        return score;
+    }
+
+    function findGeneratingStopButton() {
+        const controls = Array.from(document.querySelectorAll('button, [role="button"]'));
+        const candidates = [];
+
+        for (const control of controls) {
+            const score = scoreGeneratingStopButton(control);
+            if (score >= 80) {
+                candidates.push({ control, score });
+            }
+        }
+
+        candidates.sort((a, b) => b.score - a.score);
+        return candidates.length ? candidates[0].control : null;
+    }
+
+    async function waitUntilGeneratingLooksStopped(timeoutMs) {
+        const started = now();
+        while (now() - started < timeoutMs) {
+            if (!pageLooksGenerating()) {
+                return true;
+            }
+            await sleep(250);
+        }
+        return !pageLooksGenerating();
+    }
+
     function revealMessageActions(node) {
         try {
             node.scrollIntoView({ block: 'center', inline: 'nearest' });
@@ -1680,7 +1835,7 @@
         }
 
         if (latestUserIsAfterAssistant(latest) || (lastSendAt && !assistantIsAfterLatestUser(latest) && now() - lastSendAt < CONFIG.pendingAnswerGuardMs)) {
-            setCurrentStep('read');
+            setCurrentStep('think');
             setStatus('Waiting assistant answer');
             return;
         }
@@ -1688,7 +1843,7 @@
         const currentHash = hashText(latest.text);
 
         if (assistantHashAtLastSend && currentHash === assistantHashAtLastSend && now() - lastSendAt < CONFIG.pendingAnswerGuardMs) {
-            setCurrentStep('read');
+            setCurrentStep('think');
             setStatus('Waiting new response');
             return;
         }
@@ -1712,7 +1867,7 @@
         }
 
         if (pageLooksGenerating()) {
-            setCurrentStep('read');
+            setCurrentStep('think');
             return;
         }
 
@@ -1720,12 +1875,7 @@
         try {
             const ok = await clickReadAloudForLatest(latest);
             if (ok) {
-                setCurrentStep('read');
-                lastReadHash = currentHash;
-                lastReadStartedHash = currentHash;
-                responseCycleHash = currentHash;
-                lastReadCompletedHash = '';
-                lastReadAt = now();
+                markReadStarted(currentHash, latest.text);
                 setStatus('Read aloud clicked');
                 if (state.autoLoop) {
                     restartVoiceInputAfterRead(latest, currentHash);
@@ -1741,14 +1891,71 @@
     }
 
 
+    function scoreReadAloudStopButton(control) {
+        if (!control || !isElementVisible(control) || control.closest('#cgas-widget')) {
+            return -1;
+        }
+
+        const label = textOf(control);
+        if (!label || !READ_STOP_LABEL_RE.test(label) || READ_STOP_BAD_LABEL_RE.test(label)) {
+            return -1;
+        }
+
+        let score = 0;
+        const dataTestId = String(control.getAttribute('data-testid') || '');
+        const ariaLabel = String(control.getAttribute('aria-label') || '');
+        const combined = normalizeSpace([label, dataTestId, ariaLabel].join(' '));
+        const rect = control.getBoundingClientRect();
+
+        if (/stop\s+reading|stop\s+audio|arr[eê]ter\s+(la\s+)?lecture|arr[eê]ter\s+(l['’])?audio/i.test(combined)) {
+            score += 260;
+        }
+        if (/\bstop\b/i.test(combined)) {
+            score += 90;
+        }
+        if (/read|reading|audio|speaker|haut-parleur|lecture/i.test(combined)) {
+            score += 90;
+        }
+        if (/stop/i.test(dataTestId)) {
+            score += 45;
+        }
+        if (rect.top > window.innerHeight * 0.20 && rect.top < window.innerHeight * 0.88) {
+            score += 12;
+        }
+        if (rect.width >= 18 && rect.width <= 110 && rect.height >= 18 && rect.height <= 110) {
+            score += 20;
+        }
+
+        return score;
+    }
+
+    function findReadAloudStopButton() {
+        const controls = Array.from(document.querySelectorAll('button, [role="button"], [role="menuitem"]'));
+        const candidates = [];
+
+        for (const control of controls) {
+            const score = scoreReadAloudStopButton(control);
+            if (score >= 100) {
+                candidates.push({ control, score });
+            }
+        }
+
+        candidates.sort((a, b) => b.score - a.score);
+        return candidates.length ? candidates[0].control : null;
+    }
+
     function pageLooksReadingAloud() {
+        if (findReadAloudStopButton()) {
+            return true;
+        }
+
         const controls = Array.from(document.querySelectorAll('button, [role="button"], [role="menuitem"]'));
         for (const control of controls) {
-            if (!isElementVisible(control)) {
+            if (!isElementVisible(control) || control.closest('#cgas-widget')) {
                 continue;
             }
             const label = textOf(control);
-            if (READ_ACTIVE_LABEL_RE.test(label)) {
+            if (READ_ACTIVE_LABEL_RE.test(label) && !READ_STOP_BAD_LABEL_RE.test(label)) {
                 return true;
             }
         }
@@ -1776,7 +1983,7 @@
         return Math.min(CONFIG.loopMaxReadWaitMs, Math.max(CONFIG.loopMinReadWaitMs, estimated));
     }
 
-    async function waitForReadAloudCompletion(text) {
+    async function waitForReadAloudCompletion(text, expectedEpoch) {
         const started = now();
         const estimatedWait = estimateReadMs(text);
         const maxWait = Math.min(CONFIG.loopMaxReadWaitMs, Math.max(estimatedWait + 15000, 18000));
@@ -1786,6 +1993,11 @@
         await sleep(1200);
 
         while (now() - started < maxWait) {
+            if (!flowIsActive() || !state.autoLoop || (typeof expectedEpoch === 'number' && expectedEpoch !== automationEpoch)) {
+                setStatus('Read wait cancelled');
+                return false;
+            }
+
             const active = pageLooksReadingAloud();
 
             if (active) {
@@ -1821,7 +2033,8 @@
              */
             if (now() - started >= estimatedWait) {
                 await sleep(CONFIG.loopPostReadSafetyMs);
-                return true;
+                setStatus('Start locked: read stop not confirmed');
+                return false;
             }
 
             setStatus('Reading estimate… restart locked');
@@ -1829,7 +2042,7 @@
         }
 
         await sleep(CONFIG.loopPostReadSafetyMs);
-        return true;
+        return sawActiveReadState && !pageLooksReadingAloud();
     }
 
     function scoreDictationButton(button, composerRoot) {
@@ -1963,10 +2176,14 @@
 
         loopRunning = true;
         try {
+            setCurrentStep('read');
             setStatus('Waiting read end…');
-            await waitForReadAloudCompletion(latest && latest.text ? latest.text : '');
-            lastReadCompletedHash = currentHash || '';
-            responseCycleOpen = false;
+            const readStopped = await waitForReadAloudCompletion(latest && latest.text ? latest.text : '', jobEpoch);
+            if (!readStopped || pageLooksReadingAloud() || jobEpoch !== automationEpoch || !state.autoLoop || !flowIsActive()) {
+                setStatus('Start locked: read stop not confirmed');
+                return;
+            }
+            markReadCompleted(currentHash || '');
 
             if (latest && !assistantIsAfterLatestUser(latest)) {
                 setStatus('Start locked: not latest answer');
@@ -2345,6 +2562,12 @@
             return;
         }
 
+        if (pageLooksGenerating() || pageLooksReadingAloud() || readGuardActive()) {
+            resetTosState();
+            setStatus('TOS locked: Think/Read', true);
+            return;
+        }
+
         const rms = currentMicRms();
         const level = tosLevelFromRms(rms);
         const rmsThreshold = tosEffectiveRmsThreshold();
@@ -2415,20 +2638,23 @@
         return !pageLooksReadingAloud();
     }
 
-    async function clickVoiceInputNow(reason) {
+    async function clickVoiceInputNow(reason, options = {}) {
+        const allowDuringThink = Boolean(options.allowDuringThink);
+        const ignoreResponseCycle = Boolean(options.ignoreResponseCycle);
+
         if (!flowIsActive()) {
             setStatus('Flow OFF');
             return false;
         }
-        if (answerStillPendingAfterSend() || (responseCycleOpen && !lastReadCompletedHash)) {
+        if (!allowDuringThink && !ignoreResponseCycle && (answerStillPendingAfterSend() || (responseCycleOpen && !lastReadCompletedHash))) {
             setStatus('Next blocked: waiting response/read');
             return false;
         }
-        if (pageLooksGenerating()) {
+        if (!allowDuringThink && pageLooksGenerating()) {
             setStatus('Next blocked: thinking');
             return false;
         }
-        if (pageLooksReadingAloud()) {
+        if (pageLooksReadingAloud() || readGuardActive()) {
             setStatus('Next blocked: still reading');
             return false;
         }
@@ -2445,85 +2671,146 @@
     }
 
     async function goToNextStep() {
+        if (manualNextInProgress) {
+            setStatus('Next already running');
+            return;
+        }
+
         if (!flowIsActive()) {
             setStatus('Flow OFF');
             return;
         }
 
-        const activeReadButton = findButtonByLabel(document, READ_ACTIVE_LABEL_RE);
-        if (activeReadButton && isElementVisible(activeReadButton)) {
-            try {
-                activeReadButton.click();
-                setStatus('Read aloud skipped');
-                await sleep(CONFIG.manualNextDelayMs);
-                await waitUntilReadingLooksStopped(5000);
-                lastReadCompletedHash = lastReadStartedHash || lastReadHash || '';
-                responseCycleOpen = false;
-                if (state.autoLoop) {
-                    await clickVoiceInputNow('Next: transcription');
+        manualNextInProgress = true;
+        try {
+            const finishButton = findTranscriptionFinishButton();
+            if (finishButton) {
+                try {
+                    setCurrentStep('send');
+                    finishButton.click();
+                    tosLastFinishClickAt = now();
+                    resetTosState();
+                    setStatus('Next: V clicked');
+                } catch (error) {
+                    setStatus('Next V failed: ' + error.message);
                 }
-            } catch (error) {
-                setStatus('Next failed: ' + error.message);
-            }
-            return;
-        }
-
-        const finishButton = findTranscriptionFinishButton();
-        if (finishButton) {
-            try {
-                setCurrentStep('send');
-                finishButton.click();
-                tosLastFinishClickAt = now();
-                resetTosState();
-                setStatus('Next: V clicked');
-            } catch (error) {
-                setStatus('Next V failed: ' + error.message);
-            }
-            return;
-        }
-
-        const composerText = getComposerText();
-        const sendButton = composerText ? findSendButton() : null;
-        if (sendButton) {
-            try {
-                setCurrentStep('send');
-                noteSendCycleStart();
-                sendButton.click();
-                lastSentHash = hashText(composerText);
-                lastSendAt = now();
-                setCurrentStep('read');
-                setStatus('Next: sent, waiting response');
-            } catch (error) {
-                setStatus('Next send failed: ' + error.message);
-            }
-            return;
-        }
-
-        const latest = getLatestAssistantMessage();
-        if (latest && latest.text && !latestUserIsAfterAssistant(latest) && !pageLooksGenerating()) {
-            try {
-                const ok = await clickReadAloudForLatest(latest);
-                if (ok) {
-                    setCurrentStep('read');
-                    lastReadHash = hashText(latest.text);
-                    lastReadStartedHash = lastReadHash;
-                    responseCycleHash = lastReadHash;
-                    lastReadCompletedHash = '';
-                    lastReadAt = now();
-                    setStatus('Next: Read aloud');
-                    if (state.autoLoop) {
-                        restartVoiceInputAfterRead(latest, lastReadHash);
-                    }
-                    return;
-                }
-            } catch (error) {
-                setStatus('Next read failed: ' + error.message);
                 return;
             }
-        }
 
-        await clickVoiceInputNow('Next: transcription');
+            const visibleStep = inferCurrentStepFromPage();
+            const readStopButton = findReadAloudStopButton();
+            const readLooksActive = visibleStep === 'read' || pageLooksReadingAloud() || readGuardActive();
+
+            if (readLooksActive) {
+                if (!readStopButton || !isElementVisible(readStopButton)) {
+                    setStatus('Next blocked: Read Stop missing');
+                    return;
+                }
+
+                try {
+                    bumpAutomationEpoch('manual-next-stop-read');
+                    readStopButton.click();
+                    setStatus('Stopping Read aloud…');
+                    await sleep(CONFIG.manualNextDelayMs);
+                    const stopped = await waitUntilReadingLooksStopped(6500);
+                    if (!stopped || pageLooksReadingAloud()) {
+                        setStatus('Next blocked: read still active');
+                        return;
+                    }
+                    markReadCompleted(lastReadStartedHash || lastReadHash || '');
+                    readGuardUntil = 0;
+                    setStatus('Read aloud stopped');
+                    if (state.autoLoop) {
+                        await clickVoiceInputNow('Next: transcription', { ignoreResponseCycle: true });
+                    } else {
+                        setCurrentStep('idle');
+                        setStatus('Next: Start Transcription OFF');
+                    }
+                } catch (error) {
+                    setStatus('Next failed: ' + error.message);
+                }
+                return;
+            }
+
+            if (visibleStep === 'think' || pageLooksGenerating()) {
+                const stopGeneratingButton = findGeneratingStopButton();
+                if (!stopGeneratingButton) {
+                    setStatus('Next blocked: Stop generating missing');
+                    return;
+                }
+
+                bumpAutomationEpoch('manual-next-stop-think');
+                try {
+                    stopGeneratingButton.click();
+                    setStatus('Stopping Think…');
+                    const stopped = await waitUntilGeneratingLooksStopped(6500);
+                    if (!stopped || pageLooksGenerating()) {
+                        setStatus('Next blocked: still thinking');
+                        return;
+                    }
+                    responseCycleOpen = false;
+                    responseCycleHash = '';
+                    lastReadCompletedHash = '';
+                    readGuardUntil = 0;
+                    setStatus('Think stopped');
+                    if (state.autoLoop) {
+                        await clickVoiceInputNow('Next: transcription', { allowDuringThink: true, ignoreResponseCycle: true });
+                    } else {
+                        setCurrentStep('idle');
+                        setStatus('Next: Start Transcription OFF');
+                    }
+                } catch (error) {
+                    setStatus('Next Think failed: ' + error.message);
+                }
+                return;
+            }
+
+            const composerText = getComposerText();
+            const sendButton = composerText ? findSendButton() : null;
+            if (sendButton) {
+                try {
+                    setCurrentStep('send');
+                    noteSendCycleStart();
+                    sendButton.click();
+                    lastSentHash = hashText(composerText);
+                    lastSendAt = now();
+                    setCurrentStep('think');
+                    setStatus('Next: sent, thinking');
+                } catch (error) {
+                    setStatus('Next send failed: ' + error.message);
+                }
+                return;
+            }
+
+            const latest = getLatestAssistantMessage();
+            if (latest && latest.text && !latestUserIsAfterAssistant(latest) && !pageLooksGenerating()) {
+                try {
+                    const ok = await clickReadAloudForLatest(latest);
+                    if (ok) {
+                        const currentHash = hashText(latest.text);
+                        markReadStarted(currentHash, latest.text);
+                        setStatus('Next: Read aloud');
+                        if (state.autoLoop) {
+                            restartVoiceInputAfterRead(latest, currentHash);
+                        }
+                        return;
+                    }
+                } catch (error) {
+                    setStatus('Next read failed: ' + error.message);
+                    return;
+                }
+            }
+
+            if (state.autoLoop) {
+                await clickVoiceInputNow('Next: transcription');
+            } else {
+                setStatus('Next: Start Transcription OFF');
+            }
+        } finally {
+            manualNextInProgress = false;
+        }
     }
+
 
     function setupMessages() {
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

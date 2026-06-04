@@ -11,6 +11,35 @@ Date / Time: 2026-06-03 21:20
 
 All notable project changes are recorded here.
 
+## v8.8.0 — 2026-06-04
+
+### Fixed
+
+- Hardened `Next Step` during Read aloud: it now targets the real Stop reading control and must confirm stop before starting VTT.
+- Hardened `Next Step` during Think: it now targets ChatGPT's Stop generating control before any VTT restart.
+- Blocked T.O.S. while ChatGPT is thinking or reading to prevent self-transcription of ChatGPT's own voice.
+- Added stale-loop protection so old async read/loop jobs cannot restart transcription after toggles, Flow, or widget state changed.
+- Kept Start Transcription OFF as a hard blocker for automatic VTT restart.
+- Improved step-state priority so a post-send response cycle stays in Think/Read instead of falling back to VTT too early.
+- Added nested visual grouping for the Think / Read status pill.
+
+
+## v8.7 — 2026-06-03
+
+### Fixed
+
+- Split the post-send phase into `Think` and real `Read` states.
+- Fixed `Next Step` during `Think`: it skips the wait without trying to stop Read aloud.
+- Fixed `Next Step` during `Read`: VTT restart is blocked unless Read aloud stop is confirmed.
+- Added stronger guards against ghost Start Transcription during Think, Read, pending response, or stale async jobs.
+
+### Changed
+
+- Replaced the step display with compact pills: `Send`, grouped `Think / Read`, and `VTT`.
+- Moved red state dots after the labels.
+- Changed widget labels to Title Case, including `Full Flow Activation` and Mini `Full Flow Act.`.
+- Kept `Mini / Maxi` wording and tightened the widget layout.
+
 ## v8.0 — 2026-06-03
 
 ### Added

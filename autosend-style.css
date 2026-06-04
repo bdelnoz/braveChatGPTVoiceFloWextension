@@ -5,8 +5,8 @@
  * AUTHOR       : Bruno DELNOZ
  * EMAIL        : bruno.delnoz@protonmail.com
  * TARGET USAGE : Draggable ChatGPT VTT-TTV Flow widget style
- * VERSION      : v8.4.0
- * DATE         : 2026-06-03 22:35
+ * VERSION      : v8.8.0
+ * DATE         : 2026-06-04 00:35
  * ============================================================================
  */
 
@@ -15,16 +15,16 @@
     top: 92px;
     right: 18px;
     z-index: 2147483647;
-    width: 248px;
+    width: 208px;
     max-width: calc(100vw - 24px);
-    padding: 8px;
+    padding: 7px;
     border-radius: 13px;
     background: rgba(17, 24, 39, 0.96);
     color: #f9fafb;
     box-shadow: 0 10px 34px rgba(0, 0, 0, 0.36);
     border: 1px solid rgba(255, 255, 255, 0.16);
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 11.5px;
+    font-size: 11px;
     line-height: 1.25;
     user-select: none;
 }
@@ -48,18 +48,30 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 6px;
+    gap: 4px;
+    margin-bottom: 4px;
     cursor: move;
 }
 
 #cgas-title {
     font-weight: 800;
-    font-size: 12px;
+    font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     flex: 1;
+    text-align: center;
+}
+
+#cgas-version-badge {
+    flex: 0 0 auto;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgba(96, 165, 250, 0.20);
+    color: #dbeafe;
+    font-size: 9px;
+    font-weight: 900;
+    line-height: 13px;
 }
 
 .cgas-header-button,
@@ -83,7 +95,7 @@
     gap: 5px;
     align-items: center;
     margin-top: 5px;
-    padding: 5px;
+    padding: 4px;
     border-radius: 11px;
     background: rgba(255, 255, 255, 0.055);
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -112,8 +124,8 @@
 
 #cgas-step-indicators {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
+    grid-template-columns: 0.8fr 1.35fr 0.7fr;
+    gap: 3px;
     margin-top: 5px;
 }
 
@@ -121,15 +133,36 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 3px;
     min-width: 0;
-    padding: 4px 5px;
+    padding: 4px 4px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.055);
     color: #cbd5e1;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 800;
     white-space: nowrap;
+}
+
+.cgas-step-part {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+}
+
+.cgas-step-think-read-pill {
+    gap: 4px;
+    padding-left: 3px;
+    padding-right: 3px;
+}
+
+.cgas-step-think-read-pill .cgas-step-part {
+    padding: 2px 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.075);
+    border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .cgas-step-dot {
@@ -262,11 +295,10 @@
 
 
 #cgas-widget.cgas-labels-expanded {
-    width: 365px;
+    width: 296px;
 }
 
-#cgas-widget.cgas-labels-expanded 
-#cgas-flow-master-row {
+#cgas-widget.cgas-labels-expanded #cgas-flow-master-row {
     display: grid;
     grid-template-columns: 1fr auto auto;
     gap: 5px;
@@ -301,8 +333,8 @@
 
 #cgas-step-indicators {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
+    grid-template-columns: 0.8fr 1.35fr 0.7fr;
+    gap: 3px;
     margin-top: 5px;
 }
 
@@ -344,7 +376,7 @@
 }
 
 #cgas-widget.cgas-labels-expanded .cgas-meter-row {
-    grid-template-columns: 1fr 92px 34px;
+    grid-template-columns: 1fr 76px 30px;
 }
 
 #cgas-widget.cgas-labels-expanded .cgas-label {
@@ -364,9 +396,9 @@
  * v8.4.0 compact Mini layout overrides
  * ========================================================================== */
 #cgas-widget:not(.cgas-labels-expanded) {
-    width: 204px;
-    padding: 6px;
-    font-size: 10px;
+    width: 164px;
+    padding: 5px;
+    font-size: 9.5px;
 }
 
 #cgas-widget:not(.cgas-labels-expanded) #cgas-dragbar {
@@ -375,7 +407,7 @@
 }
 
 #cgas-widget:not(.cgas-labels-expanded) #cgas-title {
-    font-size: 11px;
+    font-size: 10px;
 }
 
 #cgas-widget:not(.cgas-labels-expanded) .cgas-header-button,
@@ -451,4 +483,91 @@
     padding-top: 4px;
     font-size: 9.5px;
     min-height: 12px;
+}
+
+
+/* v8.5.0 tighter widget layout */
+#cgas-widget:not(.cgas-labels-expanded) #cgas-version-badge {
+    padding: 1px 4px;
+    font-size: 8px;
+    line-height: 13px;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) #cgas-flow-master-row,
+#cgas-widget:not(.cgas-labels-expanded) .cgas-row {
+    grid-template-columns: minmax(34px, 1fr) auto auto;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) #cgas-step-indicators {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#cgas-widget:not(.cgas-labels-expanded) .cgas-step-indicator-item {
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) .cgas-step-indicator-item .cgas-step-text {
+    max-width: 28px;
+    overflow: hidden;
+    text-overflow: clip;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) .cgas-meter-row {
+    grid-template-columns: 22px 1fr 18px;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) #cgas-vol-bar {
+    height: 8px;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) #cgas-status {
+    text-align: center;
+}
+
+#cgas-widget.cgas-labels-expanded #cgas-title {
+    text-align: center;
+}
+
+#cgas-widget.cgas-labels-expanded #cgas-status {
+    text-align: center;
+}
+
+
+/* v8.8.0 Think / Read nested group and hardened title-case UI */
+#cgas-widget:not(.cgas-labels-expanded) #cgas-label-mode-toggle {
+    width: 32px;
+    min-width: 32px;
+    padding: 0 4px;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) #cgas-step-indicators {
+    grid-template-columns: 0.78fr 1.48fr 0.66fr;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) .cgas-step-think-read-pill {
+    gap: 3px;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) .cgas-step-part {
+    gap: 2px;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) .cgas-step-text {
+    max-width: 28px;
+    overflow: hidden;
+    text-overflow: clip;
+}
+
+#cgas-widget:not(.cgas-labels-expanded) #cgas-step-indicators .cgas-step-indicator-item {
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
+#cgas-widget.cgas-labels-expanded #cgas-step-indicators {
+    grid-template-columns: 0.82fr 1.38fr 0.72fr;
+}
+
+#cgas-widget.cgas-labels-expanded .cgas-step-think-read-pill {
+    gap: 7px;
 }
