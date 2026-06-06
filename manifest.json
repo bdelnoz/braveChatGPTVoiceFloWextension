@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Voice Flow",
-  "version": "8.8.0",
-  "description": "Local ChatGPT Web helper for voice-to-text and text-to-voice flow with Flow On/Off, Next Step, step indicators, T.O.S., threshold and volume meter. v8.8.0 hardens Next Step during Think/Read, blocks self-transcription while ChatGPT is reading or thinking, and keeps Start Transcription OFF as a hard blocker for automatic VTT restart.",
+  "version": "11.3.0",
+  "description": "ChatGPT Voice Flow dev build. v11.3.0 changes header close into a mini VF button instead of hiding the widget.",
   "action": {
-    "default_title": "ChatGPT Voice Flow",
+    "default_title": "ChatGPT Voice Flow v11.3.0",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -16,7 +16,8 @@
     "activeTab",
     "scripting",
     "storage",
-    "audioCapture"
+    "audioCapture",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -45,5 +46,7 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "short_name": "Voice Flow",
+  "version_name": "v11.3.0 Mini Button Fix - compact restore widget"
 }

@@ -5,8 +5,21 @@
  * AUTHOR       : Bruno DELNOZ
  * EMAIL        : bruno.delnoz@protonmail.com
  * TARGET USAGE : Draggable ChatGPT VTT-TTV Flow widget style
- * VERSION      : v8.8.0
- * DATE         : 2026-06-04 00:35
+ * VERSION      : v11.3.0
+ * DATE         : 2026-06-06 04:55
+ * ============================================================================
+ * CHANGELOG:
+ *   v11.3.0 – 2026-06-06 04:55 – Bruno DELNOZ
+ *       Changed:
+ *       - Added compact mini VF button mode.
+ *       - Header dot now minimizes instead of hiding.
+ *   v11.2.0 – 2026-06-05 14:35 – Bruno DELNOZ
+ *       Added:
+ *       - Added compact styling for Developer Mode Update Dev button.
+ *   v11.1.0 – 2026-06-05 13:20 – Bruno DELNOZ
+ *       Fixed:
+ *       - Compact Developer Mode ON/OFF pair buttons.
+ *       - Reduced Developer Mode width and middle whitespace.
  * ============================================================================
  */
 
@@ -570,4 +583,330 @@
 
 #cgas-widget.cgas-labels-expanded .cgas-step-think-read-pill {
     gap: 7px;
+}
+
+
+/* v10.1.0 Developer Mode state-machine UI */
+#cgas-widget.cgas-developer-mode {
+    width: 286px;
+}
+
+#cgas-widget.cgas-developer-mode.cgas-labels-expanded {
+    width: 306px;
+}
+
+#cgas-stop-row {
+    display: grid;
+    grid-template-columns: 1fr 0.72fr;
+    gap: 5px;
+    margin-top: 5px;
+}
+
+.cgas-stop-button {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid rgba(248, 113, 113, 0.45);
+    border-radius: 10px;
+    background: rgba(248, 113, 113, 0.26);
+    color: #fee2e2;
+    font-size: 11px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+#cgas-dev-mode-toggle.cgas-dev-active {
+    background: rgba(16, 185, 129, 0.38);
+    color: #d1fae5;
+}
+
+#cgas-dev-panel {
+    margin-top: 6px;
+    padding: 6px;
+    border-radius: 11px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(96, 165, 250, 0.32);
+}
+
+#cgas-dev-panel[hidden] {
+    display: none !important;
+}
+
+#cgas-dev-header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 5px;
+    color: #bfdbfe;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+#cgas-dev-state-line {
+    margin-bottom: 6px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    background: rgba(96, 165, 250, 0.12);
+    color: #dbeafe;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+#cgas-dev-current-state {
+    color: #fef3c7;
+}
+
+.cgas-dev-block {
+    margin-top: 6px;
+    padding-top: 5px;
+    border-top: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.cgas-dev-block-title {
+    margin-bottom: 4px;
+    color: #93c5fd;
+    font-size: 10px;
+    font-weight: 900;
+}
+
+.cgas-dev-step-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) 22px 22px 32px;
+    align-items: center;
+    gap: 2px;
+    margin-top: 3px;
+    padding: 3px 2px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.cgas-dev-step-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #e5e7eb;
+    font-size: 8px;
+    font-weight: 760;
+}
+
+.cgas-dev-step-type {
+    color: #cbd5e1;
+    font-size: 9px;
+    font-weight: 800;
+    text-align: center;
+    opacity: 0.86;
+}
+
+.cgas-dev-toggle {
+    min-width: 20px;
+    width: 22px;
+    padding: 3px 2px;
+    font-size: 8px;
+    border-radius: 7px;
+    font-weight: 900;
+}
+
+.cgas-dev-test {
+    padding: 4px 4px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    background: rgba(96, 165, 250, 0.22);
+    color: #dbeafe;
+    font-size: 9px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.cgas-dev-disabled-dot {
+    opacity: 0.32;
+}
+
+
+#cgas-dev-step-picker {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 5px;
+    align-items: center;
+    margin-top: 6px;
+    margin-bottom: 6px;
+}
+
+#cgas-dev-step-selector {
+    min-width: 0;
+    padding: 5px 6px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(15, 23, 42, 0.96);
+    color: #e5e7eb;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.cgas-dev-run-selected,
+.cgas-dev-set-state {
+    padding: 5px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(96, 165, 250, 0.22);
+    color: #dbeafe;
+    font-size: 9px;
+    font-weight: 900;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.cgas-dev-set-state {
+    background: rgba(148, 163, 184, 0.18);
+}
+
+
+/* v10.2.0 Developer Mode reset: legacy rows hidden, T.O.S. kept as trigger */
+#cgas-widget.cgas-developer-mode #cgas-step-indicators,
+#cgas-widget.cgas-developer-mode #cgas-label-send,
+#cgas-widget.cgas-developer-mode #cgas-send-yes,
+#cgas-widget.cgas-developer-mode #cgas-send-no,
+#cgas-widget.cgas-developer-mode #cgas-label-read,
+#cgas-widget.cgas-developer-mode #cgas-read-yes,
+#cgas-widget.cgas-developer-mode #cgas-read-no,
+#cgas-widget.cgas-developer-mode #cgas-label-loop,
+#cgas-widget.cgas-developer-mode #cgas-loop-yes,
+#cgas-widget.cgas-developer-mode #cgas-loop-no {
+    display: none !important;
+}
+
+#cgas-widget.cgas-developer-mode .cgas-row:has(#cgas-send-yes),
+#cgas-widget.cgas-developer-mode .cgas-row:has(#cgas-read-yes),
+#cgas-widget.cgas-developer-mode .cgas-row:has(#cgas-loop-yes) {
+    display: none !important;
+}
+
+.cgas-dev-state-only {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 38px;
+    padding: 4px 4px;
+    border-radius: 8px;
+    background: rgba(148, 163, 184, 0.15);
+    color: #cbd5e1;
+    font-size: 8px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+#cgas-widget.cgas-developer-mode #cgas-dev-step-picker {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+#cgas-widget.cgas-developer-mode .cgas-dev-run-selected,
+#cgas-widget.cgas-developer-mode .cgas-dev-set-state {
+    padding-left: 5px;
+    padding-right: 5px;
+}
+
+
+/* v11.0.0 fast developer update helper */
+.cgas-reload-extension-button {
+    min-width: 54px;
+    width: auto;
+    padding-left: 6px;
+    padding-right: 6px;
+    border-radius: 999px;
+    background: rgba(245, 158, 11, 0.22);
+    color: #fef3c7;
+    font-size: 9px;
+    white-space: nowrap;
+}
+
+
+/* v11.1.0 Developer Mode ON/OFF pair controls */
+.cgas-dev-on,
+.cgas-dev-off {
+    min-width: 20px;
+    width: 22px;
+    padding: 3px 2px;
+    font-size: 8px;
+    font-weight: 900;
+    border-radius: 7px;
+}
+
+.cgas-dev-on.cgas-active-yes {
+    background: rgba(16, 185, 129, 0.88);
+    color: #06281e;
+}
+
+.cgas-dev-off.cgas-active-no {
+    background: rgba(248, 113, 113, 0.88);
+    color: #3b0606;
+}
+
+.cgas-dev-step-row .cgas-dev-test,
+.cgas-dev-step-row .cgas-dev-state-only {
+    width: 32px;
+    min-width: 32px;
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: 8px;
+}
+
+#cgas-widget.cgas-developer-mode .cgas-dev-step-label {
+    max-width: 188px;
+}
+
+
+/* v11.2.0 Native Messaging developer updater */
+.cgas-update-dev-button {
+    min-width: 48px;
+    width: auto;
+    padding-left: 6px;
+    padding-right: 6px;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.24);
+    color: #d1fae5;
+    font-size: 9px;
+    white-space: nowrap;
+}
+
+
+/* v11.3.0 Mini button mode */
+#cgas-mini-restore {
+    display: none;
+}
+
+#cgas-widget.cgas-minimized {
+    width: 42px !important;
+    min-width: 42px !important;
+    padding: 4px !important;
+    border-radius: 12px !important;
+}
+
+#cgas-widget.cgas-minimized #cgas-mini-restore {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 32px;
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    border-radius: 9px;
+    background: rgba(96, 165, 250, 0.24);
+    color: #dbeafe;
+    font-size: 10px;
+    font-weight: 950;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+}
+
+#cgas-widget.cgas-minimized #cgas-dragbar,
+#cgas-widget.cgas-minimized #cgas-flow-master-row,
+#cgas-widget.cgas-minimized #cgas-next-row,
+#cgas-widget.cgas-minimized #cgas-step-indicators,
+#cgas-widget.cgas-minimized #cgas-developer-panel,
+#cgas-widget.cgas-minimized #cgas-stop-row,
+#cgas-widget.cgas-minimized .cgas-row,
+#cgas-widget.cgas-minimized .cgas-step-row,
+#cgas-widget.cgas-minimized #cgas-vol-row,
+#cgas-widget.cgas-minimized #cgas-status {
+    display: none !important;
 }

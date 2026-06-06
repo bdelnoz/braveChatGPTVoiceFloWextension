@@ -26,3 +26,5 @@ results/
 certs/
 secrets/
 .secrets
+.zip/
+.old/

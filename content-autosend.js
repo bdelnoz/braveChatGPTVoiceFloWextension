@@ -5,10 +5,53 @@
  * AUTHOR       : Bruno DELNOZ
  * EMAIL        : bruno.delnoz@protonmail.com
  * TARGET USAGE : ChatGPT Web Voice-to-text / Text-to-voice flow helper
- * VERSION      : v8.8.0
- * DATE         : 2026-06-04 00:35
+ * VERSION      : v11.3.0
+ * DATE         : 2026-06-06 04:55
  * ============================================================================
  * CHANGELOG:
+ *   v11.3.0 – 2026-06-06 04:55 – Bruno DELNOZ
+ *       Changed:
+ *       - Header dot/minimize now switches to a compact VF mini button instead of hiding the widget.
+ *       - Added persistent widget minimized state.
+ *       - Extension show/toggle restores the widget from mini state when useful.
+ *   v11.2.0 – 2026-06-05 14:35 – Bruno DELNOZ
+ *       Added:
+ *       - Added Developer Mode Update Dev button.
+ *       - Added Native Messaging update request from widget to background.
+ *       - Reload Ext now asks background to refresh ChatGPT tabs after extension reload.
+ *   v11.1.0 – 2026-06-05 13:20 – Bruno DELNOZ
+ *       Fixed:
+ *       - Developer Mode steps now use explicit No/Yes pair buttons.
+ *       - OFF is strict in Developer Mode; missing step config means OFF.
+ *       - Developer Mode starts enabled after upgrade.
+ *       - T.O.S. remains the only legacy trigger visible in Developer Mode.
+ *   v11.0.0 – 2026-06-05 12:15 – Bruno DELNOZ
+ *       Added:
+ *       - Added Developer Mode Reload Ext button.
+ *       - Added reload request through background service worker.
+ *   v10.2.0 – 2026-06-05 19:35 – Bruno DELNOZ
+ *       Fixed:
+ *       - Developer Mode no longer depends on legacy Send/Read/Start rows.
+ *       - Developer step toggles now default OFF and are intended to be enabled explicitly.
+ *       - State-only steps no longer expose misleading Test buttons.
+ *       - T.O.S. is kept as the only dedicated trigger row in Developer Mode.
+ *       - Entering Developer Mode disables old auto Send/Read/Loop toggles and bumps async epoch.
+ *       Changed:
+ *       - Developer Mode is compacted for smaller screens.
+ *   v10.1.0 – 2026-06-05 18:35 – Bruno DELNOZ
+ *       Fixed:
+ *       - Fixed extension import failure by shortening the Manifest V3 description.
+ *       Added:
+ *       - Developer Mode step selector with Run Selected and Set State actions.
+ *   v10.1.0 – 2026-06-05 18:10 – Bruno DELNOZ
+ *       Added:
+ *       - Developer Mode with four workflow blocks and nine conceptual steps.
+ *       - Developer step rows with active bullets, per-step enable/disable and manual test buttons.
+ *       - v10 workflow state bridge while preserving the v8.8 runtime base.
+ *       - State-aware Stop button for Think, Read, voice recording and stale async jobs.
+ *       Fixed:
+ *       - Adds the v9.0 no-speech T.O.S. guard so silence alone cannot validate an empty transcription.
+ *       - Keeps Start Transcription OFF as a hard no-restart gate.
  *   v1.0.0 – 2026-06-03 07:05 – Bruno DELNOZ
  *       Added:
  *       - Initial draggable Auto-send Yes/No widget.
@@ -164,7 +207,7 @@
 
     window.__CGAS_AUTOSEND_LOADED__ = true;
 
-    const VERSION = '8.8.0';
+    const VERSION = '11.3.0';
     const SUPPORTED_ORIGIN_RE = /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//;
 
     const STORAGE_KEYS = Object.freeze({
@@ -172,6 +215,7 @@
         autoRead: 'cgas.autoRead.enabled',
         autoLoop: 'cgas.autoLoop.enabled',
         widgetVisible: 'cgas.widget.visible',
+        widgetMinimized: 'cgas.widget.minimized',
         widgetLeft: 'cgas.widget.left',
         widgetTop: 'cgas.widget.top',
         flowEnabled: 'cgas.flow.enabled',
@@ -179,7 +223,10 @@
         tosEnabled: 'cgas.tos.enabled',
         tosSeconds: 'cgas.tos.seconds',
         tosThreshold: 'cgas.tos.threshold',
-        runtimeVersion: 'cgas.runtime.version'
+        runtimeVersion: 'cgas.runtime.version',
+        developerMode: 'cgas.developer.enabled',
+        developerStepEnabled: 'cgas.developer.stepEnabled',
+        developerSelectedStep: 'cgas.developer.selectedStep'
     });
 
     const CONFIG = Object.freeze({
@@ -214,6 +261,134 @@
         manualNextDelayMs: 900
     });
 
+
+    const WORKFLOW_STEPS = Object.freeze([
+        {
+            id: 'voice_record_start',
+            number: 1,
+            block: 'Voice recording',
+            type: 'action',
+            shortLabel: 'Start Rec.',
+            label: 'Start voice recording for transcription',
+            description: 'Click the ChatGPT voice input control to start recording audio for later transcription.'
+        },
+        {
+            id: 'voice_recording',
+            number: 2,
+            block: 'Voice recording',
+            type: 'state',
+            shortLabel: 'Recording',
+            label: 'Voice recording in progress',
+            description: 'ChatGPT voice-to-text is open and the user is speaking or silence is being monitored.'
+        },
+        {
+            id: 'transcription_request',
+            number: 3,
+            block: 'Voice recording',
+            type: 'trigger/action',
+            shortLabel: 'Req. Text',
+            label: 'Request recorded voice-to-text transcription',
+            description: 'Click the transcription validation control after T.O.S. or manual Next.'
+        },
+        {
+            id: 'transcript_write',
+            number: 4,
+            block: 'Transcript / message',
+            type: 'state',
+            shortLabel: 'Text UI',
+            label: 'Write transcribed text to interface',
+            description: 'The transcribed text is present in the composer.'
+        },
+        {
+            id: 'send_to_chatgpt',
+            number: 5,
+            block: 'Transcript / message',
+            type: 'action',
+            shortLabel: 'Send',
+            label: 'Send transcribed text to ChatGPT',
+            description: 'Click the ChatGPT send button for the transcribed text.'
+        },
+        {
+            id: 'thinking',
+            number: 6,
+            block: 'ChatGPT response',
+            type: 'state',
+            shortLabel: 'Think',
+            label: 'ChatGPT in thinking mode',
+            description: 'ChatGPT is generating or the new answer is not ready for reading.'
+        },
+        {
+            id: 'writing',
+            number: 7,
+            block: 'ChatGPT response',
+            type: 'state',
+            shortLabel: 'Writing',
+            label: 'ChatGPT in writing mode',
+            description: 'ChatGPT is streaming text on screen.'
+        },
+        {
+            id: 'read_aloud',
+            number: 8,
+            block: 'ChatGPT response',
+            type: 'state/action',
+            shortLabel: 'Read',
+            label: 'ChatGPT in read aloud mode',
+            description: 'Read aloud is active or the extension is starting/stopping it.'
+        },
+        {
+            id: 'loop_restart',
+            number: 9,
+            block: 'Loop / restart',
+            type: 'trigger/action',
+            shortLabel: 'Loop',
+            label: 'Loop back to step 1',
+            description: 'After a completed read cycle, restart voice recording if Start Transcription is enabled.'
+        }
+    ]);
+
+    const WORKFLOW_STEP_IDS = Object.freeze(WORKFLOW_STEPS.map((step) => step.id));
+    const DEVELOPER_ACTION_STEPS = Object.freeze([
+        'voice_record_start',
+        'transcription_request',
+        'send_to_chatgpt',
+        'read_aloud',
+        'loop_restart'
+    ]);
+
+    function developerStepIsAction(stepId) {
+        return DEVELOPER_ACTION_STEPS.includes(stepId);
+    }
+
+
+    const LEGACY_TO_WORKFLOW_STEP = Object.freeze({
+        idle: 'idle',
+        transcript: 'voice_recording',
+        send: 'send_to_chatgpt',
+        think: 'thinking',
+        read: 'read_aloud'
+    });
+
+    const WORKFLOW_TO_LEGACY_STEP = Object.freeze({
+        idle: 'idle',
+        voice_record_start: 'transcript',
+        voice_recording: 'transcript',
+        transcription_request: 'send',
+        transcript_write: 'send',
+        send_to_chatgpt: 'send',
+        thinking: 'think',
+        writing: 'think',
+        read_aloud: 'read',
+        loop_restart: 'transcript'
+    });
+
+    function defaultDeveloperStepEnabled() {
+        const defaults = {};
+        for (const step of WORKFLOW_STEPS) {
+            defaults[step.id] = false;
+        }
+        return defaults;
+    }
+
     const READ_LABEL_RE = /\bread aloud\b|\bread response\b|\blisten\b|lire\s+(à|a)\s+voix\s+haute|lire\s+la\s+r[eé]ponse|lecture\s+audio|écouter|ecouter/i;
     const READ_ACTIVE_LABEL_RE = /stop\s+reading|pause\s+reading|stop\s+audio|pause\s+audio|arr[eê]ter\s+(la\s+)?lecture|mettre.*pause|pause|reprendre\s+la\s+lecture/i;
     const READ_STOP_LABEL_RE = /stop\s+reading|stop\s+audio|stop\s+read|arr[eê]ter\s+(la\s+)?lecture|arr[eê]ter\s+(l['’])?audio|\bstop\b/i;
@@ -238,7 +413,11 @@
         tosSeconds: 10,
         tosThreshold: 35,
         widgetVisible: true,
+        widgetMinimized: false,
         labelsExpanded: false,
+        developerMode: false,
+        developerStepEnabled: defaultDeveloperStepEnabled(),
+        developerSelectedStep: 'voice_record_start',
         widgetLeft: null,
         widgetTop: null
     };
@@ -281,6 +460,7 @@
     let widget = null;
     let statusTimer = null;
     let currentStep = 'idle';
+    let workflowStep = 'idle';
 
     function sleep(ms) {
         return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -439,10 +619,84 @@
         readGuardUntil = 0;
     }
 
+
+    function workflowStepFromLegacy(step) {
+        return LEGACY_TO_WORKFLOW_STEP[step] || 'idle';
+    }
+
+    function legacyStepFromWorkflow(step) {
+        return WORKFLOW_TO_LEGACY_STEP[step] || 'idle';
+    }
+
     function setCurrentStep(step) {
         currentStep = step || 'idle';
+        workflowStep = workflowStepFromLegacy(currentStep);
         updateStepIndicator();
     }
+
+    function setWorkflowStep(step) {
+        workflowStep = WORKFLOW_STEP_IDS.includes(step) ? step : 'idle';
+        currentStep = legacyStepFromWorkflow(workflowStep);
+        updateStepIndicator();
+    }
+
+    function currentWorkflowStepFromPage() {
+        const legacyStep = inferCurrentStepFromPage();
+
+        if (legacyStep === 'transcript') {
+            return findTranscriptionFinishButton() ? 'voice_recording' : 'voice_record_start';
+        }
+
+        if (legacyStep === 'send') {
+            return getComposerText() ? 'transcript_write' : 'transcription_request';
+        }
+
+        if (legacyStep === 'think') {
+            return pageLooksGenerating() ? 'writing' : 'thinking';
+        }
+
+        if (legacyStep === 'read') {
+            return 'read_aloud';
+        }
+
+        return 'idle';
+    }
+
+    function updateDeveloperPanelState() {
+        const stateText = document.getElementById('cgas-dev-current-state');
+        if (stateText) {
+            stateText.textContent = workflowStep === 'idle' ? 'Idle' : workflowStep;
+        }
+
+        const selector = document.getElementById('cgas-dev-step-selector');
+        if (selector && WORKFLOW_STEP_IDS.includes(workflowStep)) {
+            selector.value = workflowStep;
+        }
+
+        for (const step of WORKFLOW_STEPS) {
+            const dot = document.getElementById('cgas-dev-dot-' + step.number);
+            if (dot) {
+                dot.classList.toggle('cgas-step-active', workflowStep === step.id);
+                dot.classList.toggle('cgas-dev-disabled-dot', state.developerStepEnabled && state.developerStepEnabled[step.id] === false);
+            }
+
+            const offButton = document.getElementById('cgas-dev-off-' + step.number);
+            const onButton = document.getElementById('cgas-dev-on-' + step.number);
+            const enabled = developerStepEnabled(step.id);
+            if (offButton) {
+                offButton.classList.toggle('cgas-active-no', !enabled);
+                offButton.classList.toggle('cgas-active-yes', false);
+            }
+            if (onButton) {
+                onButton.classList.toggle('cgas-active-yes', enabled);
+                onButton.classList.toggle('cgas-active-no', false);
+            }
+        }
+    }
+
+
+
+
 
     function updateStepIndicator() {
         const activeMap = {
@@ -517,14 +771,20 @@
         return 'idle';
     }
 
+
     function refreshCurrentStepFromPage() {
         const inferred = inferCurrentStepFromPage();
-        if (inferred !== currentStep) {
-            setCurrentStep(inferred);
+        const inferredWorkflow = currentWorkflowStepFromPage();
+
+        if (inferred !== currentStep || inferredWorkflow !== workflowStep) {
+            currentStep = inferred;
+            workflowStep = inferredWorkflow;
+            updateStepIndicator();
         } else {
             updateStepIndicator();
         }
     }
+
 
     function chromeStorageGet(keys) {
         return new Promise((resolve) => {
@@ -630,7 +890,18 @@
         const storedThreshold = Number(stored[STORAGE_KEYS.tosThreshold]);
         state.tosThreshold = clampTosThreshold(Number.isFinite(storedThreshold) ? storedThreshold : CONFIG.tosDefaultThreshold);
         state.widgetVisible = boolFromStored(stored[STORAGE_KEYS.widgetVisible], true);
+        state.widgetMinimized = firstRunForThisRuntime ? false : boolFromStored(stored[STORAGE_KEYS.widgetMinimized], false);
         state.labelsExpanded = boolFromStored(stored[STORAGE_KEYS.labelsExpanded], false);
+        state.developerMode = firstRunForThisRuntime ? true : boolFromStored(stored[STORAGE_KEYS.developerMode], false);
+        state.developerSelectedStep = WORKFLOW_STEP_IDS.includes(stored[STORAGE_KEYS.developerSelectedStep]) ? stored[STORAGE_KEYS.developerSelectedStep] : 'voice_record_start';
+        try {
+            state.developerStepEnabled = Object.assign(
+                defaultDeveloperStepEnabled(),
+                JSON.parse(stored[STORAGE_KEYS.developerStepEnabled] || '{}')
+            );
+        } catch (error) {
+            state.developerStepEnabled = defaultDeveloperStepEnabled();
+        }
 
         const left = Number(stored[STORAGE_KEYS.widgetLeft]);
         const top = Number(stored[STORAGE_KEYS.widgetTop]);
@@ -640,12 +911,21 @@
         if (firstRunForThisRuntime) {
             chromeStorageSet({
                 [STORAGE_KEYS.runtimeVersion]: VERSION,
+                [STORAGE_KEYS.widgetMinimized]: false,
                 [STORAGE_KEYS.flowEnabled]: false,
                 [STORAGE_KEYS.autoSend]: false,
                 [STORAGE_KEYS.autoRead]: false,
                 [STORAGE_KEYS.autoLoop]: false,
-                [STORAGE_KEYS.tosEnabled]: false
+                [STORAGE_KEYS.tosEnabled]: false,
+                [STORAGE_KEYS.developerMode]: true,
+                [STORAGE_KEYS.developerStepEnabled]: JSON.stringify(defaultDeveloperStepEnabled()),
+                [STORAGE_KEYS.developerSelectedStep]: 'voice_record_start'
             });
+        }
+        if (state.developerMode) {
+            state.autoSend = false;
+            state.autoRead = false;
+            state.autoLoop = false;
         }
     }
 
@@ -672,8 +952,20 @@
         if (Object.prototype.hasOwnProperty.call(patch, 'tosThreshold')) {
             values[STORAGE_KEYS.tosThreshold] = String(clampTosThreshold(patch.tosThreshold));
         }
+        if (Object.prototype.hasOwnProperty.call(patch, 'developerMode')) {
+            values[STORAGE_KEYS.developerMode] = Boolean(patch.developerMode);
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'developerStepEnabled')) {
+            values[STORAGE_KEYS.developerStepEnabled] = JSON.stringify(patch.developerStepEnabled || defaultDeveloperStepEnabled());
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'developerSelectedStep')) {
+            values[STORAGE_KEYS.developerSelectedStep] = WORKFLOW_STEP_IDS.includes(patch.developerSelectedStep) ? patch.developerSelectedStep : 'voice_record_start';
+        }
         if (Object.prototype.hasOwnProperty.call(patch, 'widgetVisible')) {
             values[STORAGE_KEYS.widgetVisible] = Boolean(patch.widgetVisible);
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'widgetMinimized')) {
+            values[STORAGE_KEYS.widgetMinimized] = Boolean(patch.widgetMinimized);
         }
         if (Object.prototype.hasOwnProperty.call(patch, 'labelsExpanded')) {
             values[STORAGE_KEYS.labelsExpanded] = Boolean(patch.labelsExpanded);
@@ -874,6 +1166,371 @@
 
 
 
+
+
+    function setWidgetMinimized(nextMinimized) {
+        state.widgetVisible = true;
+        state.widgetMinimized = Boolean(nextMinimized);
+        saveStatePatch({
+            widgetVisible: true,
+            widgetMinimized: state.widgetMinimized
+        });
+        updateWidget();
+    }
+
+    function createMiniRestoreButton() {
+        const button = createButton('VF', 'cgas-mini-restore-button', () => {
+            setWidgetMinimized(false);
+        });
+        button.id = 'cgas-mini-restore';
+        button.title = 'Restore ChatGPT Voice Flow widget.';
+        return button;
+    }
+
+
+    function createDeveloperModeToggle() {
+        const button = createButton('Dev', 'cgas-header-button', () => {
+            setDeveloperMode(!state.developerMode);
+        });
+        button.id = 'cgas-dev-mode-toggle';
+        button.title = 'Show or hide Developer Mode with detailed workflow blocks, states, actions and triggers.';
+        return button;
+    }
+
+
+    function createReloadExtensionButton() {
+        const button = createButton('Reload Ext', 'cgas-header-button cgas-reload-extension-button', async () => {
+            setStatus('Reloading extension…', true);
+            try {
+                chrome.runtime.sendMessage({ type: 'CGAS_RELOAD_EXTENSION' }, () => {
+                    const error = chrome.runtime.lastError;
+                    if (error) {
+                        console.log('[CGAS] reload request error:', error.message);
+                    }
+                });
+            } catch (error) {
+                setStatus('Reload failed: ' + error.message, true);
+            }
+        });
+        button.id = 'cgas-reload-extension';
+        button.title = 'Reload the unpacked extension after files were updated locally, then refresh open ChatGPT tabs automatically.';
+        return button;
+    }
+
+
+    function createUpdateDevButton() {
+        const button = createButton('Update', 'cgas-header-button cgas-update-dev-button', async () => {
+            setStatus('Update Dev: native host…', true);
+            try {
+                chrome.runtime.sendMessage({ type: 'CGAS_UPDATE_DEV_VERSION' }, (response) => {
+                    const error = chrome.runtime.lastError;
+                    if (error) {
+                        setStatus('Update failed: ' + error.message, true);
+                        return;
+                    }
+
+                    if (!response || response.ok !== true) {
+                        const detail = response && response.error ? response.error : 'no OK response';
+                        setStatus('Update failed: ' + detail, true);
+                        return;
+                    }
+
+                    const hostResponse = response.response || {};
+                    const version = hostResponse.version ? ' v' + hostResponse.version : '';
+                    setStatus('Updated' + version + '. Reloading…', true);
+                });
+            } catch (error) {
+                setStatus('Update failed: ' + error.message, true);
+            }
+        });
+        button.id = 'cgas-update-dev';
+        button.title = 'Run local update-dev-version.sh --latest through the Native Messaging developer host, then reload extension and ChatGPT tab.';
+        return button;
+    }
+
+
+    function createStopStepRow() {
+        const row = document.createElement('div');
+        row.id = 'cgas-stop-row';
+
+        const nextButton = createButton('Next Step', 'cgas-next-button', () => {
+            goToNextStep();
+        });
+        nextButton.id = 'cgas-next-step';
+        nextButton.title = 'Manual state-aware flow advance.';
+        row.appendChild(nextButton);
+
+        const stopButton = createButton('Stop', 'cgas-stop-button', () => {
+            stopCurrentFlow('Manual Stop');
+        });
+        stopButton.id = 'cgas-stop-step';
+        stopButton.title = 'State-aware stop for Read aloud, Think/generation, T.O.S. and stale async jobs.';
+        row.appendChild(stopButton);
+
+        return row;
+    }
+
+    function createDeveloperStepRow(step) {
+        const row = document.createElement('div');
+        row.className = 'cgas-dev-step-row';
+        row.id = 'cgas-dev-step-row-' + step.number;
+
+        const bullet = document.createElement('span');
+        bullet.id = 'cgas-dev-dot-' + step.number;
+        bullet.className = 'cgas-step-dot cgas-dev-dot';
+        row.appendChild(bullet);
+
+        const label = document.createElement('div');
+        label.className = 'cgas-dev-step-label';
+        label.title = step.description;
+        label.textContent = step.number + '. ' + step.label;
+        row.appendChild(label);
+
+        const off = createButton('No', 'cgas-dev-toggle cgas-dev-off cgas-choice', () => {
+            setDeveloperStepEnabled(step.id, false);
+        });
+        off.id = 'cgas-dev-off-' + step.number;
+        off.title = 'Disable this workflow step in Developer Mode.';
+        row.appendChild(off);
+
+        const on = createButton('Yes', 'cgas-dev-toggle cgas-dev-on cgas-choice', () => {
+            setDeveloperStepEnabled(step.id, true);
+        });
+        on.id = 'cgas-dev-on-' + step.number;
+        on.title = 'Enable this workflow step in Developer Mode.';
+        row.appendChild(on);
+
+        if (developerStepIsAction(step.id)) {
+            const test = createButton('Test', 'cgas-dev-test', () => {
+                runDeveloperStep(step.id);
+            });
+            test.id = 'cgas-dev-test-' + step.number;
+            test.title = 'Run this action step.';
+            row.appendChild(test);
+        } else {
+            const stateOnly = document.createElement('span');
+            stateOnly.className = 'cgas-dev-state-only';
+            stateOnly.textContent = 'State';
+            stateOnly.title = 'State-only step: no direct test action.';
+            row.appendChild(stateOnly);
+        }
+
+        return row;
+    }
+
+
+    function createDeveloperStepSelector() {
+        const picker = document.createElement('div');
+        picker.id = 'cgas-dev-step-picker';
+
+        const select = document.createElement('select');
+        select.id = 'cgas-dev-step-selector';
+        select.title = 'Select any workflow step to test or mark as current state.';
+
+        for (const step of WORKFLOW_STEPS) {
+            const option = document.createElement('option');
+            option.value = step.id;
+            option.textContent = step.number + '. ' + step.shortLabel;
+            option.title = step.label;
+            select.appendChild(option);
+        }
+
+        select.value = WORKFLOW_STEP_IDS.includes(state.developerSelectedStep) ? state.developerSelectedStep : 'voice_record_start';
+        select.addEventListener('change', (event) => {
+            const stepId = event.target.value;
+            state.developerSelectedStep = stepId;
+            saveStatePatch({ developerSelectedStep: stepId });
+        });
+
+        const runSelected = createButton('Run', 'cgas-dev-run-selected', () => {
+            const stepId = select.value;
+            state.developerSelectedStep = stepId;
+            saveStatePatch({ developerSelectedStep: stepId });
+            if (!developerStepIsAction(stepId)) {
+                const step = WORKFLOW_STEPS.find((item) => item.id === stepId);
+                setStatus('State-only step: ' + (step ? step.shortLabel : stepId));
+                return;
+            }
+            runDeveloperStep(stepId);
+        });
+        runSelected.id = 'cgas-dev-run-selected';
+        runSelected.title = 'Run the selected Developer Mode action step. State-only steps are not executable.';
+
+        const setState = createButton('State', 'cgas-dev-set-state', () => {
+            const stepId = select.value;
+            state.developerSelectedStep = stepId;
+            saveStatePatch({ developerSelectedStep: stepId });
+            setWorkflowStep(stepId);
+            const step = WORKFLOW_STEPS.find((item) => item.id === stepId);
+            setStatus('Dev state set: ' + (step ? step.shortLabel : stepId));
+        });
+        setState.id = 'cgas-dev-set-state';
+        setState.title = 'Mark the selected step as the current visible Developer Mode state without clicking ChatGPT controls.';
+
+        picker.appendChild(select);
+        picker.appendChild(runSelected);
+        picker.appendChild(setState);
+        return picker;
+    }
+
+    function createDeveloperPanel() {
+        const panel = document.createElement('div');
+        panel.id = 'cgas-dev-panel';
+
+        const header = document.createElement('div');
+        header.id = 'cgas-dev-header';
+        header.textContent = 'Developer Mode';
+        panel.appendChild(header);
+
+        const stateLine = document.createElement('div');
+        stateLine.id = 'cgas-dev-state-line';
+        stateLine.textContent = 'Current state: ';
+        const stateValue = document.createElement('span');
+        stateValue.id = 'cgas-dev-current-state';
+        stateValue.textContent = 'Idle';
+        stateLine.appendChild(stateValue);
+        panel.appendChild(stateLine);
+        panel.appendChild(createDeveloperStepSelector());
+
+        const blocks = [];
+        for (const step of WORKFLOW_STEPS) {
+            if (!blocks.includes(step.block)) {
+                blocks.push(step.block);
+            }
+        }
+
+        for (const block of blocks) {
+            const blockEl = document.createElement('div');
+            blockEl.className = 'cgas-dev-block';
+
+            const blockTitle = document.createElement('div');
+            blockTitle.className = 'cgas-dev-block-title';
+            blockTitle.textContent = block;
+            blockEl.appendChild(blockTitle);
+
+            for (const step of WORKFLOW_STEPS.filter((item) => item.block === block)) {
+                blockEl.appendChild(createDeveloperStepRow(step));
+            }
+
+            panel.appendChild(blockEl);
+        }
+
+        return panel;
+    }
+
+    function setDeveloperMode(enabled) {
+        state.developerMode = Boolean(enabled);
+
+        if (state.developerMode) {
+            bumpAutomationEpoch('developer-mode-on');
+            state.autoSend = false;
+            state.autoRead = false;
+            state.autoLoop = false;
+            responseCycleOpen = false;
+            responseCycleHash = '';
+            lastReadCompletedHash = '';
+        }
+
+        saveStatePatch({
+            developerMode: state.developerMode,
+            autoSend: state.autoSend,
+            autoRead: state.autoRead,
+            autoLoop: state.autoLoop
+        });
+        updateWidget();
+        setStatus(state.developerMode ? 'Developer Mode ON: legacy rows disabled' : 'Developer Mode OFF');
+    }
+
+    function setDeveloperStepEnabled(stepId, enabled) {
+        if (!state.developerStepEnabled) {
+            state.developerStepEnabled = defaultDeveloperStepEnabled();
+        }
+
+        state.developerStepEnabled[stepId] = Boolean(enabled);
+        saveStatePatch({ developerStepEnabled: state.developerStepEnabled });
+        updateWidget();
+        const step = WORKFLOW_STEPS.find((item) => item.id === stepId);
+        setStatus((step ? step.shortLabel : stepId) + (enabled ? ' ON' : ' OFF'));
+    }
+
+    function developerStepEnabled(stepId) {
+        if (!state.developerStepEnabled) {
+            return false;
+        }
+        return state.developerStepEnabled[stepId] === true;
+    }
+
+    function workflowActionAllowed(stepId) {
+        if (!state.developerMode) {
+            return true;
+        }
+        return developerStepEnabled(stepId);
+    }
+
+    function blockDeveloperStep(stepId) {
+        if (developerStepEnabled(stepId)) {
+            return false;
+        }
+
+        const step = WORKFLOW_STEPS.find((item) => item.id === stepId);
+        setStatus('Dev step OFF: ' + (step ? step.shortLabel : stepId));
+        return true;
+    }
+
+    async function runDeveloperStep(stepId) {
+        if (!developerStepIsAction(stepId)) {
+            const step = WORKFLOW_STEPS.find((item) => item.id === stepId);
+            setStatus('State-only step: ' + (step ? step.shortLabel : stepId));
+            return;
+        }
+
+        if (blockDeveloperStep(stepId)) {
+            return;
+        }
+
+        switch (stepId) {
+            case 'voice_record_start':
+                setWorkflowStep('voice_record_start');
+                await clickVoiceInputNow('Dev: start recording', { ignoreResponseCycle: true });
+                return;
+            case 'voice_recording':
+                refreshCurrentStepFromPage();
+                setStatus(findTranscriptionFinishButton() ? 'Dev: voice recording visible' : 'Dev: voice recording not detected');
+                return;
+            case 'transcription_request':
+                setWorkflowStep('transcription_request');
+                await clickTranscriptionFinishNow('Dev: request transcription');
+                return;
+            case 'transcript_write':
+                setWorkflowStep('transcript_write');
+                setStatus(getComposerText() ? 'Dev: transcript text detected' : 'Dev: no composer text');
+                return;
+            case 'send_to_chatgpt':
+                setWorkflowStep('send_to_chatgpt');
+                await sendComposerTextNow('Dev: send text');
+                return;
+            case 'thinking':
+                setWorkflowStep('thinking');
+                setStatus(pageLooksGenerating() || answerStillPendingAfterSend() ? 'Dev: thinking detected' : 'Dev: thinking not detected');
+                return;
+            case 'writing':
+                setWorkflowStep('writing');
+                setStatus(pageLooksGenerating() ? 'Dev: writing/generating detected' : 'Dev: writing not detected');
+                return;
+            case 'read_aloud':
+                setWorkflowStep('read_aloud');
+                await startReadAloudNow('Dev: read aloud');
+                return;
+            case 'loop_restart':
+                setWorkflowStep('loop_restart');
+                await clickVoiceInputNow('Dev: loop to step 1', { ignoreResponseCycle: true, ignoreStartToggle: true });
+                return;
+            default:
+                setStatus('Unknown developer step: ' + stepId);
+        }
+    }
+
+
     function createFlowMasterRow() {
         const row = document.createElement('div');
         row.id = 'cgas-flow-master-row';
@@ -897,19 +1554,11 @@
         return row;
     }
 
+
     function createNextStepRow() {
-        const row = document.createElement('div');
-        row.id = 'cgas-next-row';
-
-        const button = createButton('Next Step', 'cgas-next-button', () => {
-            goToNextStep();
-        });
-        button.id = 'cgas-next-step';
-        button.title = 'Manual flow advance: validate transcription, send text, start Read aloud, or restart transcription depending on the current visible state.';
-        row.appendChild(button);
-
-        return row;
+        return createStopStepRow();
     }
+
 
     function createStepIndicatorItem(parts, titleText, extraClassName) {
         const item = document.createElement('div');
@@ -974,6 +1623,8 @@
         widget.setAttribute('data-cgas-version', VERSION);
         setupWidgetEventShield(widget);
 
+        widget.appendChild(createMiniRestoreButton());
+
         const dragbar = document.createElement('div');
         dragbar.id = 'cgas-dragbar';
 
@@ -988,6 +1639,10 @@
         versionBadge.title = `Runtime version ${VERSION}`;
         dragbar.appendChild(versionBadge);
 
+        dragbar.appendChild(createDeveloperModeToggle());
+        dragbar.appendChild(createUpdateDevButton());
+        dragbar.appendChild(createReloadExtensionButton());
+
         const modeToggle = createButton('Maxi', 'cgas-header-button', () => {
             state.labelsExpanded = !state.labelsExpanded;
             saveStatePatch({ labelsExpanded: state.labelsExpanded });
@@ -997,16 +1652,11 @@
         modeToggle.title = 'Switch between compact labels and full explanatory labels.';
         dragbar.appendChild(modeToggle);
 
-        const close = createButton('×', '', () => {
-            state.widgetVisible = false;
-            resetTosState();
-            stopAudioMonitor();
-            setCurrentStep('idle');
-            saveStatePatch({ widgetVisible: false });
-            updateWidget();
+        const close = createButton('•', '', () => {
+            setWidgetMinimized(true);
         });
         close.id = 'cgas-close';
-        close.title = 'Hide widget. Click the extension icon to show it again.';
+        close.title = 'Minimize to compact VF button.';
         dragbar.appendChild(close);
 
         widget.appendChild(dragbar);
@@ -1014,6 +1664,7 @@
         widget.appendChild(createFlowMasterRow());
         widget.appendChild(createNextStepRow());
         widget.appendChild(createStepIndicatorRow());
+        widget.appendChild(createDeveloperPanel());
 
         widget.appendChild(createRow(
             'cgas-label-send',
@@ -1106,12 +1757,13 @@
         }
 
         widget.classList.toggle('cgas-labels-expanded', state.labelsExpanded);
+        widget.classList.toggle('cgas-developer-mode', state.developerMode);
 
         const title = document.getElementById('cgas-title');
         if (title) {
-            title.textContent = state.labelsExpanded
-                ? 'ChatGPT Voice Flow'
-                : 'Voice Flow';
+            title.textContent = state.developerMode
+                ? (state.labelsExpanded ? 'ChatGPT Voice Flow Dev' : 'Voice Flow Dev')
+                : (state.labelsExpanded ? 'ChatGPT Voice Flow' : 'Voice Flow');
         }
 
         const toggle = document.getElementById('cgas-label-mode-toggle');
@@ -1122,9 +1774,23 @@
                 : 'Switch to full explanatory labels.';
         }
 
+        const devToggle = document.getElementById('cgas-dev-mode-toggle');
+        if (devToggle) {
+            devToggle.textContent = state.developerMode ? 'User' : 'Dev';
+            devToggle.title = state.developerMode
+                ? 'Hide Developer Mode.'
+                : 'Show Developer Mode with detailed state machine steps.';
+            devToggle.classList.toggle('cgas-dev-active', state.developerMode);
+        }
+
         const next = document.getElementById('cgas-next-step');
         if (next) {
             next.textContent = state.labelsExpanded ? 'Next Step' : 'Next';
+        }
+
+        const stop = document.getElementById('cgas-stop-step');
+        if (stop) {
+            stop.textContent = state.labelsExpanded ? 'Stop Flow' : 'Stop';
         }
 
         for (const label of Array.from(widget.querySelectorAll('.cgas-dynamic-label'))) {
@@ -1152,6 +1818,8 @@
         }
 
         widget.classList.toggle('cgas-hidden', !state.widgetVisible);
+        widget.classList.toggle('cgas-minimized', Boolean(state.widgetMinimized));
+        widget.classList.toggle('cgas-developer-mode', state.developerMode);
         if (state.widgetVisible) {
             forceWidgetVisibleIfNeeded();
         }
@@ -1185,6 +1853,12 @@
         }
 
         updateVolumeMeter();
+
+        const developerPanel = document.getElementById('cgas-dev-panel');
+        if (developerPanel) {
+            developerPanel.hidden = !state.developerMode;
+        }
+
         refreshCurrentStepFromPage();
 
         setStatus(flowIsActive() && (state.autoSend || state.autoRead || state.autoLoop || state.tosEnabled) ? 'Watching…' : (state.flowEnabled ? 'Idle' : 'Flow OFF'), true);
@@ -1449,6 +2123,11 @@
         }
 
         refreshCurrentStepFromPage();
+
+        if (!workflowActionAllowed('send_to_chatgpt')) {
+            setStatus('Dev blocked: send step OFF');
+            return;
+        }
 
         const text = getComposerText();
         if (text !== lastComposerText) {
@@ -1863,6 +2542,11 @@
         }
 
         if (now() - lastReadAt < CONFIG.readCooldownMs) {
+            return;
+        }
+
+        if (!workflowActionAllowed('read_aloud')) {
+            setStatus('Dev blocked: read step OFF');
             return;
         }
 
@@ -2587,6 +3271,11 @@
             return;
         }
 
+        if (!workflowActionAllowed('transcription_request')) {
+            setStatus('Dev blocked: transcription request OFF', true);
+            return;
+        }
+
         /*
          * v5.3: proven RMS silence detection, copied in spirit from the older
          * working Whisper widget:
@@ -2614,8 +3303,14 @@
             return;
         }
 
+        if (!tosVoiceSeen) {
+            tosSilenceSince = now();
+            setStatus('TOS waiting voice / VOL ' + level, true);
+            return;
+        }
+
         try {
-            setCurrentStep('send');
+            setWorkflowStep('transcription_request');
             finishButton.click();
             tosLastFinishClickAt = now();
             resetTosState();
@@ -2625,6 +3320,152 @@
         }
     }
 
+
+
+
+    async function clickReadAloudStopControl() {
+        const readStopButton = findReadAloudStopButton();
+        if (!readStopButton || !isElementVisible(readStopButton)) {
+            return false;
+        }
+
+        readStopButton.click();
+        return true;
+    }
+
+    async function clickTranscriptionFinishNow(reason) {
+        if (!workflowActionAllowed('transcription_request')) {
+            setStatus('Dev blocked: transcription request OFF');
+            return false;
+        }
+
+        const finishButton = findTranscriptionFinishButton();
+        if (!finishButton) {
+            setStatus('No transcription V button');
+            return false;
+        }
+
+        try {
+            setWorkflowStep('transcription_request');
+            finishButton.click();
+            tosLastFinishClickAt = now();
+            resetTosState();
+            setStatus(reason || 'Transcription requested');
+            return true;
+        } catch (error) {
+            setStatus('Transcription request failed: ' + error.message);
+            return false;
+        }
+    }
+
+    async function sendComposerTextNow(reason) {
+        if (!workflowActionAllowed('send_to_chatgpt')) {
+            setStatus('Dev blocked: send step OFF');
+            return false;
+        }
+
+        const composerText = getComposerText();
+        const sendButton = composerText ? findSendButton() : null;
+
+        if (!sendButton) {
+            setStatus('No sendable composer text');
+            return false;
+        }
+
+        try {
+            noteSendCycleStart();
+            sendButton.click();
+            lastSentHash = hashText(composerText);
+            lastSendAt = now();
+            setWorkflowStep('thinking');
+            setStatus(reason || 'Sent to ChatGPT');
+            return true;
+        } catch (error) {
+            setStatus('Send failed: ' + error.message);
+            return false;
+        }
+    }
+
+    async function startReadAloudNow(reason) {
+        if (!workflowActionAllowed('read_aloud')) {
+            setStatus('Dev blocked: read step OFF');
+            return false;
+        }
+
+        const latest = getLatestAssistantMessage();
+
+        if (!latest || !latest.text || latestUserIsAfterAssistant(latest) || pageLooksGenerating()) {
+            setStatus('No ready assistant answer');
+            return false;
+        }
+
+        try {
+            const ok = await clickReadAloudForLatest(latest);
+            if (!ok) {
+                setStatus('Read aloud control not found');
+                return false;
+            }
+
+            const currentHash = hashText(latest.text);
+            markReadStarted(currentHash, latest.text);
+            setStatus(reason || 'Read aloud started');
+
+            if (state.autoLoop) {
+                restartVoiceInputAfterRead(latest, currentHash);
+            }
+
+            return true;
+        } catch (error) {
+            setStatus('Read aloud failed: ' + error.message);
+            return false;
+        }
+    }
+
+    async function stopCurrentFlow(reason) {
+        bumpAutomationEpoch(reason || 'manual-stop');
+        resetTosState();
+        loopRunning = false;
+        readRunning = false;
+        manualNextInProgress = false;
+
+        if (pageLooksReadingAloud() || readGuardActive()) {
+            const clicked = await clickReadAloudStopControl();
+            if (clicked) {
+                await sleep(CONFIG.manualNextDelayMs);
+                await waitUntilReadingLooksStopped(6500);
+            }
+            markReadCompleted(lastReadStartedHash || lastReadHash || '');
+            readGuardUntil = 0;
+            setCurrentStep('idle');
+            setStatus(clicked ? 'Stopped Read aloud' : 'Stop: read control missing');
+            return;
+        }
+
+        if (pageLooksGenerating()) {
+            const stopGeneratingButton = findGeneratingStopButton();
+            if (stopGeneratingButton) {
+                stopGeneratingButton.click();
+                await waitUntilGeneratingLooksStopped(6500);
+                responseCycleOpen = false;
+                responseCycleHash = '';
+                lastReadCompletedHash = '';
+                setCurrentStep('idle');
+                setStatus('Stopped Think/Writing');
+                return;
+            }
+            setStatus('Stop: generating control missing');
+            return;
+        }
+
+        if (findTranscriptionFinishButton()) {
+            setWorkflowStep('voice_recording');
+            setStatus('Stop: voice recording visible; use ChatGPT control if needed');
+            return;
+        }
+
+        setCurrentStep('idle');
+        setStatus('Stopped');
+    }
 
 
     async function waitUntilReadingLooksStopped(timeoutMs) {
@@ -2644,6 +3485,18 @@
 
         if (!flowIsActive()) {
             setStatus('Flow OFF');
+            return false;
+        }
+        if (!state.autoLoop && !options.ignoreStartToggle) {
+            setStatus('Start transcription OFF');
+            return false;
+        }
+        if (!workflowActionAllowed('voice_record_start')) {
+            setStatus('Dev blocked: start recording OFF');
+            return false;
+        }
+        if (String(reason || '').toLowerCase().includes('loop') && !workflowActionAllowed('loop_restart')) {
+            setStatus('Dev blocked: loop restart OFF');
             return false;
         }
         if (!allowDuringThink && !ignoreResponseCycle && (answerStillPendingAfterSend() || (responseCycleOpen && !lastReadCompletedHash))) {
@@ -2698,18 +3551,16 @@
             }
 
             const visibleStep = inferCurrentStepFromPage();
-            const readStopButton = findReadAloudStopButton();
             const readLooksActive = visibleStep === 'read' || pageLooksReadingAloud() || readGuardActive();
 
             if (readLooksActive) {
-                if (!readStopButton || !isElementVisible(readStopButton)) {
-                    setStatus('Next blocked: Read Stop missing');
-                    return;
-                }
-
                 try {
                     bumpAutomationEpoch('manual-next-stop-read');
-                    readStopButton.click();
+                    const clickedStop = await clickReadAloudStopControl();
+                    if (!clickedStop) {
+                        setStatus('Next blocked: Read Stop missing');
+                        return;
+                    }
                     setStatus('Stopping Read aloud…');
                     await sleep(CONFIG.manualNextDelayMs);
                     const stopped = await waitUntilReadingLooksStopped(6500);
@@ -2824,6 +3675,15 @@
             }
 
             if (message.type === 'CGAS_TOGGLE_WIDGET') {
+                if (state.widgetVisible && state.widgetMinimized) {
+                    state.widgetMinimized = false;
+                    saveStatePatch({ widgetVisible: true, widgetMinimized: false });
+                    createWidget();
+                    updateWidget();
+                    sendResponse({ ok: true, visible: true, minimized: false });
+                    return false;
+                }
+
                 state.widgetVisible = !state.widgetVisible;
                 if (!state.widgetVisible) {
                     bumpAutomationEpoch('widget-hidden');
@@ -2833,22 +3693,26 @@
                 } else if (state.flowEnabled && state.tosEnabled) {
                     ensureAudioMonitor();
                 }
-                saveStatePatch({ widgetVisible: state.widgetVisible });
+                if (!state.widgetVisible) {
+                    state.widgetMinimized = false;
+                }
+                saveStatePatch({ widgetVisible: state.widgetVisible, widgetMinimized: state.widgetMinimized });
                 createWidget();
                 updateWidget();
-                sendResponse({ ok: true, visible: state.widgetVisible });
+                sendResponse({ ok: true, visible: state.widgetVisible, minimized: state.widgetMinimized });
                 return false;
             }
 
             if (message.type === 'CGAS_SHOW_WIDGET') {
                 state.widgetVisible = true;
+                state.widgetMinimized = false;
                 if (state.flowEnabled && state.tosEnabled) {
                     ensureAudioMonitor();
                 }
-                saveStatePatch({ widgetVisible: true });
+                saveStatePatch({ widgetVisible: true, widgetMinimized: false });
                 createWidget();
                 updateWidget();
-                sendResponse({ ok: true, visible: true });
+                sendResponse({ ok: true, visible: true, minimized: false });
                 return false;
             }
 
